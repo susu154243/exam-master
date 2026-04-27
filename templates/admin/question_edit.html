@@ -1,0 +1,71 @@
+{% extends 'admin/base.html' %}
+{% block title %}编辑题目 #{{ question.id }}{% endblock %}
+{% block content %}
+<div class="admin-header"><h1><i class="fas fa-edit"></i> 编辑题目 #{{ question.id }}</h1></div>
+<div class="card" style="max-width: 800px;">
+    <form method="post">
+        <div class="form-group">
+            <label class="form-label">题干</label>
+            <textarea name="stem" class="form-control" rows="4" required>{{ question.stem }}</textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">选项（JSON）</label>
+            <textarea name="options" class="form-control" rows="3">{{ question.options }}</textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">答案</label>
+            <input type="text" name="answer" class="form-control" value="{{ question.answer }}" required>
+        </div>
+        <div class="form-group">
+            <label class="form-label">解析</label>
+            <textarea name="explanation" class="form-control" rows="4">{{ question.explanation }}</textarea>
+        </div>
+        <div class="form-row d-flex gap-3">
+            <div class="form-group">
+                <label class="form-label">题型</label>
+                <select name="qtype_text" class="form-control" id="qtypeSelect">
+                    {% for t in ['单选题','多选题','判断题','填空题','简答题','计算题','案例分析','论文题'] %}
+                    <option value="{{ t }}" {% if t == question.qtype_text %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="qtype" id="qtypeCode" value="{{ question.qtype }}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select name="category_id" class="form-control">
+                    <option value="">请选择</option>
+                    {% for c in leaf_cats %}
+                    <option value="{{ c.id }}" {% if c.id == question.category_id %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-row d-flex gap-3">
+            <div class="form-group">
+                <label class="form-label">来源</label>
+                <select name="source" class="form-control">
+                    {% for s in [('practice','章节练习'),('exam','历史真题'),('mock','模拟考试'),('daily','每日打卡')] %}
+                    <option value="{{ s[0] }}" {% if s[0] == question.source %}selected{% endif %}>{{ s[1] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label><input type="checkbox" name="is_real_exam" value="1" {% if question.is_real_exam %}checked{% endif %}> 真题</label>
+            </div>
+            <div class="form-group">
+                <label class="form-label">年份</label>
+                <input type="number" name="exam_year" class="form-control" value="{{ question.exam_year or '' }}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">状态</label>
+                <select name="status" class="form-control">
+                    <option value="1" {% if question.status == 1 %}selected{% endif %}>启用</option>
+                    <option value="0" {% if question.status == 0 %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> 保存</button>
+        <a href="{{ url_for('admin.questions', subject_id=question.subject_id) }}" class="btn btn-outline-secondary">取消</a>
+    </form>
+</div>
+{% endblock %}

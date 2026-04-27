@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ '历史真题' if year else '模拟考试' }} - ExamMaster{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    {% if year %}
+    <a href="{{ url_for('exam_years', subject_id=subject.id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回年份选择
+    </a>
+    {% else %}
+    <a href="{{ url_for('mock_exam', subject_id=subject.id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回模拟考试
+    </a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2 class="card-title">
+        {% if year %}
+        <i class="fas fa-history"></i> {{ subject.name }} - {{ year }}年真题
+        {% else %}
+        <i class="fas fa-file-alt"></i> 模拟考试
+        {% endif %}
+    </h2>
+    
+    <form id="examForm" method="post" action="{{ url_for('submit_exam', subject_id=subject.id, year=year) if year else url_for('submit_exam', subject_id=subject.id, year=0) }}" class="mb-4">
+        {% for question in questions %}
+        <div class="question-container mb-4">
+            <div class="question-header">
+                <span class="question-number">题目 {{ question.id }}</span>
+                <span class="badge badge-info">{{ question.qtype_text }}</span>
+            </div>
+            <div class="question-stem">{{ question.stem | safe }}</div>
+            <div class="options-list">
+                {% for opt_key, opt_val in question.options.items() %}
+                {% if opt_val %}
+                <div class="option-item">
+                    <label class="option-label">
+                        {% if question.qtype_text == '多选题' %}
+                            <input type="checkbox" name="answer_{{ question.id }}" value="{{ opt_key }}" class="option-checkbox">
+                        {% else %}
+                            <input type="radio" name="answer_{{ question.id }}" value="{{ opt_key }}" class="option-checkbox" required>
+                        {% endif %}
+                        <span class="option-text"><strong>{{ opt_key }}.</strong> {{ opt_val | safe }}</span>
+                    </label>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="fas fa-paper-plane"></i> 提交试卷
+        </button>
+    </form>
+
+    <div id="examResult" class="mt-4"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const examForm = document.getElementById('examForm');
+    examForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(examForm);
+        fetch(examForm.getAttribute('action'), { method: 'POST', body: formData })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const resultDiv = document.getElementById('examResult');
+                const score = data.score;
+                resultDiv.innerHTML = `
+                <div class="alert ${score >= 60 ? 'alert-success' : 'alert-danger'} text-center py-4">
+                    <h2 class="mb-3">考试结束</h2>
+                    <div class="stat-value mb-2" style="font-size: 3rem;">${score}%</div>
+                    <p class="mb-0">答对 ${data.correct_count} / ${data.total} 题</p>
+                    <a href="{{ url_for('subject_detail', subject_id=subject.id) }}" class="btn btn-outline-light mt-3">返回科目</a>
+                </div>`;
+                examForm.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            console.error("提交失败:", err);
+            alert('提交失败，请重试');
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}历史真题 - {{ subject.name }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('subject_detail', subject_id=subject.id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回 {{ subject.name }}
+    </a>
+</div>
+<div class="card">
+    <h2 class="card-title"><i class="fas fa-history"></i> 历史真题 - 选择年份</h2>
+    {% if years %}
+    <div class="year-grid">
+        {% for year, count in years %}
+        <a href="{{ url_for('exam_by_year', subject_id=subject.id, year=year) }}" class="year-card">
+            <div class="year-number">{{ year }}</div>
+            <div class="year-count">{{ count }} 题</div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">暂无真题数据</div>
+    {% endif %}
+</div>
+<style>
+    .year-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+    .year-card { background-color: var(--gray-100); border-radius: var(--border-radius); padding: 1.5rem; text-align: center; text-decoration: none; color: inherit; transition: var(--transition); }
+    .year-card:hover { transform: translateY(-3px); box-shadow: var(--box-shadow); background-color: var(--primary-color); color: white; }
+    .year-number { font-size: 1.5rem; font-weight: 700; }
+    .year-count { font-size: 0.9rem; color: var(--gray-600); margin-top: 0.25rem; }
+    .year-card:hover .year-count { color: rgba(255,255,255,0.8); }
+</style>
+{% endblock %}

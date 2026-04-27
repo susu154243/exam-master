@@ -1,0 +1,89 @@
+{% extends 'admin/base.html' %}
+{% block title %}新增题目{% endblock %}
+{% block content %}
+<div class="admin-header"><h1><i class="fas fa-plus"></i> 新增题目</h1></div>
+<div class="card" style="max-width: 800px;">
+    <form method="post">
+        <div class="form-group">
+            <label class="form-label">题干（支持HTML/图片Base64）</label>
+            <textarea name="stem" class="form-control" rows="4" required></textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">选项（JSON格式，如 {"A":"选项A","B":"选项B","C":"选项C","D":"选项D"}）</label>
+            <textarea name="options" class="form-control" rows="3">{"A":"","B":"","C":"","D":""}</textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">答案（如 ABCD）</label>
+            <input type="text" name="answer" class="form-control" required>
+        </div>
+        <div class="form-group">
+            <label class="form-label">解析（支持HTML/图片Base64）</label>
+            <textarea name="explanation" class="form-control" rows="4"></textarea>
+        </div>
+        <div class="form-row d-flex gap-3">
+            <div class="form-group">
+                <label class="form-label">题型</label>
+                <select name="qtype_text" class="form-control" id="qtypeSelect">
+                    <option value="单选题">单选题</option>
+                    <option value="多选题">多选题</option>
+                    <option value="判断题">判断题</option>
+                    <option value="填空题">填空题</option>
+                    <option value="简答题">简答题</option>
+                    <option value="计算题">计算题</option>
+                    <option value="案例分析">案例分析</option>
+                    <option value="论文题">论文题</option>
+                </select>
+                <input type="hidden" name="qtype" id="qtypeCode" value="single">
+            </div>
+            <div class="form-group">
+                <label class="form-label">难度</label>
+                <select name="difficulty" class="form-control">
+                    <option value="无">无</option>
+                    <option value="简单">简单</option>
+                    <option value="中等">中等</option>
+                    <option value="困难">困难</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select name="category_id" class="form-control">
+                    <option value="">请选择</option>
+                    {% for c in leaf_cats %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-row d-flex gap-3">
+            <div class="form-group">
+                <label class="form-label">来源</label>
+                <select name="source" class="form-control" id="sourceSelect">
+                    <option value="practice">章节练习</option>
+                    <option value="exam">历史真题</option>
+                    <option value="mock">模拟考试</option>
+                    <option value="daily">每日打卡</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" name="is_real_exam" value="1"> 是真题
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="form-label">真题年份</label>
+                <input type="number" name="exam_year" class="form-control" placeholder="如 2024">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> 创建</button>
+        <a href="{{ url_for('admin.questions', subject_id=subject_id) }}" class="btn btn-outline-secondary">取消</a>
+    </form>
+</div>
+
+<script>
+document.getElementById('qtypeSelect').addEventListener('change', function() {
+    const val = this.value;
+    const code = (val === '多选题') ? 'multiple' : 'single';
+    document.getElementById('qtypeCode').value = code;
+});
+</script>
+{% endblock %}

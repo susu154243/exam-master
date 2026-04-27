@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ subject.name }} - ExamMaster{% endblock %}
+
+{% block content %}
+<div class="subject-header mb-4">
+    <div class="card">
+        <div class="d-flex align-items-center gap-3">
+            <span style="font-size: 3rem;">{{ subject.icon }}</span>
+            <div>
+                <h1 class="card-title mb-1">{{ subject.name }}</h1>
+                <p class="text-muted mb-0">{{ subject.description }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 统计概览 -->
+<div class="card-grid mb-4">
+    <div class="stat-card">
+        <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
+        <div class="stat-label">题目总数</div>
+        <div class="stat-value">{{ total_questions }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background-color: rgba(46, 196, 182, 0.1); color: var(--success-color);">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="stat-label">历史真题</div>
+        <div class="stat-value">{{ real_exam_count }} 题</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background-color: rgba(79, 70, 229, 0.1); color: #4f46e5;">
+            <i class="fas fa-percentage"></i>
+        </div>
+        <div class="stat-label">整体正确率</div>
+        <div class="stat-value">{{ overall_accuracy|round(1) }}%</div>
+    </div>
+</div>
+
+<!-- 功能入口 -->
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-graduation-cap"></i> 学习模式</h2>
+    <div class="mode-grid">
+        <a href="{{ url_for('practice', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-book-open mode-icon"></i>
+            <h3>章节练习</h3>
+            <p>按分类逐章练习</p>
+        </a>
+        <a href="{{ url_for('exam_years', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-history mode-icon"></i>
+            <h3>历史真题</h3>
+            <p>按年份刷真题</p>
+        </a>
+        <a href="{{ url_for('mock_exam', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-file-alt mode-icon"></i>
+            <h3>模拟考试</h3>
+            <p>随机组卷测试</p>
+        </a>
+        <a href="{{ url_for('wrong_questions', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-times-circle mode-icon" style="color: var(--danger-color);"></i>
+            <h3>我的错题</h3>
+            <p>复习错题</p>
+        </a>
+        <a href="{{ url_for('show_favorites', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-star mode-icon" style="color: var(--warning-color);"></i>
+            <h3>我的收藏</h3>
+            <p>查看收藏题目</p>
+        </a>
+        <a href="{{ url_for('statistics', subject_id=subject.id) }}" class="mode-card">
+            <i class="fas fa-chart-bar mode-icon" style="color: var(--info-color);"></i>
+            <h3>统计分析</h3>
+            <p>学习数据分析</p>
+        </a>
+    </div>
+</div>
+
+<!-- 分类树 -->
+{% if tree %}
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-sitemap"></i> 分类导航</h2>
+    <div class="category-tree">
+        {% for level1 in tree %}
+        <div class="category-level-1">
+            <h3><i class="fas fa-folder"></i> {{ level1.name }}</h3>
+            {% if level1.children %}
+            <div class="category-level-2">
+                {% for level2 in level1.children %}
+                <div class="category-level-2-item">
+                    <h4><i class="fas fa-folder-open"></i> {{ level2.name }}</h4>
+                    {% if level2.children %}
+                    <div class="category-level-3">
+                        {% for level3 in level2.children %}
+                        <a href="{{ url_for('practice_category', subject_id=subject.id, category_id=level3.id) }}" class="category-level-3-item">
+                            <i class="fas fa-file-alt"></i> {{ level3.name }}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="text-center mt-3">
+    <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
+        <i class="fas fa-arrow-left"></i> 返回科目列表
+    </a>
+</div>
+
+<style>
+    .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+    .mode-card { background-color: var(--gray-100); border-radius: var(--border-radius); padding: 1.5rem; text-align: center; text-decoration: none; color: inherit; transition: var(--transition); }
+    .mode-card:hover { transform: translateY(-5px); box-shadow: var(--box-shadow); background-color: white; }
+    .mode-icon { font-size: 2rem; color: var(--primary-color); margin-bottom: 0.75rem; }
+    .mode-card h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .mode-card p { color: var(--gray-600); font-size: 0.9rem; margin: 0; }
+    .category-tree { padding: 1rem 0; }
+    .category-level-1 { margin-bottom: 1.5rem; }
+    .category-level-1 h3 { font-size: 1.2rem; color: var(--primary-color); margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--primary-color); }
+    .category-level-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-left: 1.5rem; }
+    .category-level-2-item h4 { font-size: 1rem; color: var(--gray-700); margin-bottom: 0.5rem; }
+    .category-level-3 { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-left: 1rem; }
+    .category-level-3-item { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; background-color: var(--gray-100); border-radius: var(--border-radius); text-decoration: none; color: var(--gray-700); font-size: 0.9rem; transition: var(--transition); }
+    .category-level-3-item:hover { background-color: var(--primary-color); color: white; }
+</style>
+{% endblock %}

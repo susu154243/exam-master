@@ -1,0 +1,37 @@
+{% extends 'admin/base.html' %}
+{% block title %}科目管理{% endblock %}
+{% block content %}
+<div class="admin-header">
+    <h1><i class="fas fa-book"></i> 科目管理</h1>
+    <a href="{{ url_for('admin.create_subject_page') }}" class="btn btn-primary"><i class="fas fa-plus"></i> 新增科目</a>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>ID</th><th>图标</th><th>名称</th><th>代码</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for s in subjects %}
+                <tr>
+                    <td>{{ s.id }}</td>
+                    <td style="font-size: 1.5rem;">{{ s.icon }}</td>
+                    <td>{{ s.name }}</td>
+                    <td><code>{{ s.code }}</code></td>
+                    <td>{{ s.description }}</td>
+                    <td><span class="badge {% if s.status == 1 %}badge-success{% else %}badge-danger{% endif %}">{{ '启用' if s.status == 1 else '禁用' }}</span></td>
+                    <td>
+                        <a href="{{ url_for('admin.manage_categories', subject_id=s.id) }}" class="btn btn-sm btn-info"><i class="fas fa-sitemap"></i> 分类</a>
+                        <a href="{{ url_for('admin.questions', subject_id=s.id) }}" class="btn btn-sm btn-warning"><i class="fas fa-file-alt"></i> 题目</a>
+                        <form method="post" action="{{ url_for('admin.toggle_subject', subject_id=s.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm {% if s.status == 1 %}btn-warning{% else %}btn-success{% endif %}">
+                                {{ '禁用' if s.status == 1 else '启用' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

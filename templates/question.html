@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block title %}题目 - ExamMaster{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('subject_detail', subject_id=subject_id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回科目
+    </a>
+    {% if category_id %}
+    <a href="{{ url_for('practice', subject_id=subject_id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-sitemap"></i> 返回分类
+    </a>
+    {% endif %}
+</div>
+
+<!-- 复习进度 -->
+{% if review_progress %}
+<div class="review-progress-bar mb-3">
+    <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <span class="badge badge-primary">总 {{ review_progress.total }}</span>
+                <span class="badge badge-info">已复习 {{ review_progress.reviewed }}</span>
+                <span class="badge badge-warning">待复习 {{ review_progress.due }}</span>
+            </div>
+            <span class="text-muted text-sm">{{ review_progress.reviewed }}/{{ review_progress.total }}</span>
+        </div>
+        <div class="progress-bar-container mt-2">
+            <div class="progress-bar bg-success" style="width: {{ (review_progress.reviewed / review_progress.total * 100) if review_progress.total > 0 else 0 }}%;"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if question %}
+<div class="question-container">
+    <div class="question-header">
+        <div class="question-info">
+            <span class="question-number">题 {{ question.id }}</span>
+            {% if question.qtype_text %}
+                <span class="badge badge-info">{{ question.qtype_text }}</span>
+            {% endif %}
+            {% if question.difficulty and question.difficulty != '无' %}
+                <span class="badge badge-warning">{{ question.difficulty }}</span>
+            {% endif %}
+            {% if question.is_real_exam %}
+                <span class="badge badge-danger">真题 {{ question.exam_year }}</span>
+            {% endif %}
+        </div>
+        
+        <div class="question-actions-top">
+            <form method="post" action="{{ url_for('favorite_question', subject_id=subject_id, qid=question.id) }}">
+                <button type="submit" class="btn btn-sm {% if is_favorite %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+                    <i class="fas fa-star"></i> {{ '已收藏' if is_favorite else '收藏' }}
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 题干 -->
+    <div class="question-stem">{{ question.stem | safe }}</div>
+    
+    <!-- 选项 -->
+    {% if not result_msg %}
+    <form method="post" action="{{ url_for('submit_answer', subject_id=subject_id, qid=question.id) }}{% if category_id %}?category_id={{ category_id }}{% endif %}" class="question-form">
+        <ul class="options-list">
+            {% for opt_key, opt_val in question.options.items() %}
+                <li class="option-item">
+                    <label class="option-label">
+                        {% if question.qtype_text == '多选题' %}
+                            <input type="checkbox" name="answer" value="{{ opt_key }}">
+                        {% else %}
+                            <input type="radio" name="answer" value="{{ opt_key }}" required>
+                        {% endif %}
+                        <span class="option-text"><strong>{{ opt_key }}.</strong> {{ opt_val | safe }}</span>
+                    </label>
+                </li>
+            {% endfor %}
+        </ul>
+        
+        <div class="question-actions">
+            <button type="submit" class="btn btn-success">
+                <i class="fas fa-paper-plane"></i> 提交答案
+            </button>
+        </div>
+    </form>
+    {% endif %}
+    
+    <!-- 答题结果 -->
+    {% if result_msg %}
+        <div class="result-message {% if '正确' in result_msg %}result-correct{% else %}result-incorrect{% endif %}">
+            <strong>{% if '正确' in result_msg %}✅ 回答正确！{% else %}❌ 回答错误{% endif %}</strong>
+            {% if '正确' not in result_msg %}
+                <br>正确答案：<strong>{{ question.answer }}</strong>
+            {% endif %}
+        </div>
+        
+        {% if question.explanation %}
+        <div class="explanation-box">
+            <h4><i class="fas fa-lightbulb"></i> 解析</h4>
+            <div>{{ question.explanation | safe }}</div>
+        </div>
+        {% endif %}
+        
+        <!-- SM-2 评分 -->
+        <div class="rating-section">
+            <h4 class="rating-title">你觉得这道题：</h4>
+            <form method="post" action="{{ url_for('rate_question', subject_id=subject_id, qid=question.id) }}{% if category_id %}?category_id={{ category_id }}{% endif %}" class="rating-form">
+                <input type="hidden" name="category_id" value="{{ category_id or '' }}">
+                <div class="rating-buttons">
+                    <button type="submit" name="quality" value="0" class="rating-btn rating-0" title="完全忘记">😭 忘了</button>
+                    <button type="submit" name="quality" value="1" class="rating-btn rating-1" title="模糊">😕 模糊</button>
+                    <button type="submit" name="quality" value="2" class="rating-btn rating-2" title="一般">😐 一般</button>
+                    <button type="submit" name="quality" value="3" class="rating-btn rating-3" title="简单">😊 简单</button>
+                    <button type="submit" name="quality" value="4" class="rating-btn rating-4" title="秒答">🤩 秒答</button>
+                </div>
+            </form>
+            {% if next_qid %}
+            <div class="mt-3 text-center">
+                <a href="{{ url_for('show_question', subject_id=subject_id, qid=next_qid) }}{% if category_id %}?category_id={{ category_id }}{% endif %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-forward"></i> 跳过评分，直接下一题
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<style>
+    .question-info { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .option-label.option-correct { background-color: rgba(46, 196, 182, 0.1); border-color: var(--success-color); }
+    .option-label.option-incorrect { background-color: rgba(230, 57, 70, 0.1); border-color: var(--danger-color); }
+    .explanation-box { background-color: #f0f7ff; border-left: 4px solid var(--primary-color); padding: 1rem; margin: 1rem 0; border-radius: 0 var(--border-radius) var(--border-radius) 0; }
+    .explanation-box h4 { margin: 0 0 0.5rem; color: var(--primary-color); }
+    .result-message { padding: 0.75rem 1rem; border-radius: var(--border-radius); margin-bottom: 1rem; }
+    .result-correct { background-color: rgba(46, 196, 182, 0.1); color: var(--success-color); }
+    .result-incorrect { background-color: rgba(230, 57, 70, 0.1); color: var(--danger-color); }
+    
+    /* 复习进度条 */
+    .review-progress-bar .card { background-color: rgba(255,255,255,0.8); }
+    .text-sm { font-size: 0.85rem; }
+    
+    /* SM-2 评分 */
+    .rating-section { margin-top: 1.5rem; padding: 1.5rem; background-color: var(--gray-100); border-radius: var(--border-radius); }
+    .rating-title { margin: 0 0 1rem; font-size: 1.1rem; color: var(--gray-700); }
+    .rating-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    .rating-btn { padding: 0.75rem 1.25rem; border: 2px solid var(--gray-300); border-radius: var(--border-radius); background: white; font-size: 1rem; cursor: pointer; transition: var(--transition); }
+    .rating-btn:hover { transform: translateY(-2px); box-shadow: var(--box-shadow); }
+    .rating-0:hover { border-color: #e63946; background-color: #ffe5e8; }
+    .rating-1:hover { border-color: #f4a261; background-color: #fff3e0; }
+    .rating-2:hover { border-color: #e9c46a; background-color: #fffde7; }
+    .rating-3:hover { border-color: #2ec4b6; background-color: #e0f7f5; }
+    .rating-4:hover { border-color: #4361ee; background-color: #e8edff; }
+</style>
+{% endblock %}

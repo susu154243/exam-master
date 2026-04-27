@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}模拟考试 - {{ subject.name }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('subject_detail', subject_id=subject.id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回 {{ subject.name }}
+    </a>
+</div>
+<div class="card text-center py-5">
+    <i class="fas fa-file-alt" style="font-size: 3rem; color: var(--primary-color); margin-bottom: 1rem;"></i>
+    <h2 class="mb-3">模拟考试</h2>
+    <p class="mb-4 text-muted">选择题目数量，随机组卷开始考试</p>
+    <form method="post" action="{{ url_for('start_mock_exam', subject_id=subject.id) }}" class="d-inline-block">
+        <div class="form-group" style="max-width: 300px; margin: 0 auto 1rem;">
+            <label for="question_count" class="form-label">题目数量</label>
+            <select name="question_count" id="question_count" class="form-control">
+                <option value="5">5 题</option>
+                <option value="10" selected>10 题</option>
+                <option value="20">20 题</option>
+                <option value="30">30 题</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="fas fa-play"></i> 开始考试
+        </button>
+    </form>
+</div>
+{% endblock %}

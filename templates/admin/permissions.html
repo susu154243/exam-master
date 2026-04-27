@@ -1,0 +1,25 @@
+{% extends 'admin/base.html' %}
+{% block title %}权限分配{% endblock %}
+{% block content %}
+<div class="admin-header"><h1><i class="fas fa-key"></i> 权限分配</h1></div>
+<div class="card">
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.id }}</td>
+                    <td>{{ u.username }}</td>
+                    <td><span class="badge {% if u.role == 'admin' %}badge-danger{% else %}badge-primary{% endif %}">{{ u.role }}</span></td>
+                    <td>{{ '正常' if u.status == 1 else '禁用' }}</td>
+                    <td>
+                        <a href="{{ url_for('admin.user_permissions', user_id=u.id) }}" class="btn btn-sm btn-info"><i class="fas fa-key"></i> 配置权限</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

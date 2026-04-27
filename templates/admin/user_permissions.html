@@ -1,0 +1,24 @@
+{% extends 'admin/base.html' %}
+{% block title %}权限配置 - {{ user.username }}{% endblock %}
+{% block content %}
+<div class="admin-header">
+    <h1><i class="fas fa-key"></i> 权限配置 - {{ user.username }}</h1>
+    <a href="{{ url_for('admin.permissions') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> 返回</a>
+</div>
+
+{% for s in subjects %}
+<div class="card mb-3">
+    <h3 class="card-title">{{ s.name }}</h3>
+    <form method="post" action="{{ url_for('admin.set_permissions', user_id=user.id) }}">
+        <input type="hidden" name="subject_id" value="{{ s.id }}">
+        <div class="d-flex gap-3 flex-wrap">
+            <label><input type="checkbox" name="can_practice" value="1" {% if perms|selectattr('subject_id','equalto',s.id)|selectattr('can_practice')|list|length > 0 %}checked{% endif %}> 章节练习</label>
+            <label><input type="checkbox" name="can_mock" value="1" {% if perms|selectattr('subject_id','equalto',s.id)|selectattr('can_mock')|list|length > 0 %}checked{% endif %}> 模拟考试</label>
+            <label><input type="checkbox" name="can_daily" value="1" {% if perms|selectattr('subject_id','equalto',s.id)|selectattr('can_daily')|list|length > 0 %}checked{% endif %}> 每日打卡</label>
+            <label><input type="checkbox" name="can_manage" value="1" {% if perms|selectattr('subject_id','equalto',s.id)|selectattr('can_manage')|list|length > 0 %}checked{% endif %}> 题库管理</label>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3"><i class="fas fa-save"></i> 保存</button>
+    </form>
+</div>
+{% endfor %}
+{% endblock %}

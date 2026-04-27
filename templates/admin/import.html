@@ -1,0 +1,32 @@
+{% extends 'admin/base.html' %}
+{% block title %}批量导入{% endblock %}
+{% block content %}
+<div class="admin-header"><h1><i class="fas fa-upload"></i> 批量导入题目</h1></div>
+
+<div class="card mb-3">
+    <h3 class="card-title">CSV 格式说明</h3>
+    <pre class="bg-light p-3" style="border-radius: var(--border-radius); font-size: 0.85rem; overflow-x: auto;">
+stem,options,answer,explanation,qtype,difficulty,category_l1,category_l2,category_l3,source,is_real_exam,exam_year
+"题干内容","{""A"":""选项A"",""B"":""选项B""}","A","解析内容","单选题","简单","综合知识","信息化","信息技术",练习,0,
+"真题题干","{""A"":""A"",""B"":""B""}","AB","解析","多选题","中等","综合知识","项目管理","范围管理",真题,1,2024</pre>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label class="form-label">目标科目</label>
+            <select name="subject_id" class="form-control" required>
+                <option value="">请选择科目</option>
+                {% for s in subjects %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">CSV 文件</label>
+            <input type="file" name="csv_file" accept=".csv" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> 导入</button>
+    </form>
+</div>
+{% endblock %}

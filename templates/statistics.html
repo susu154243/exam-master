@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+
+{% block title %}统计分析 - {{ subject.name }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{{ url_for('subject_detail', subject_id=subject.id) }}" class="btn btn-outline-primary btn-sm">
+        <i class="fas fa-arrow-left"></i> 返回 {{ subject.name }}
+    </a>
+</div>
+
+<h1 class="card-title mb-3"><i class="fas fa-chart-pie"></i> 学习统计</h1>
+
+<!-- 概览卡片 -->
+<div class="stats-overview" id="stats-overview">
+    <div class="stat-box"><div class="stat-icon">🔥</div><div class="stat-value" id="streak-days">-</div><div class="stat-label">连续天数</div></div>
+    <div class="stat-box"><div class="stat-icon">📚</div><div class="stat-value" id="today-reviewed">-</div><div class="stat-label">今日复习</div></div>
+    <div class="stat-box"><div class="stat-icon">⏰</div><div class="stat-value" id="due-now">-</div><div class="stat-label">待复习</div></div>
+    <div class="stat-box"><div class="stat-icon">🎯</div><div class="stat-value" id="accuracy-7d">-</div><div class="stat-label">7天正确率</div></div>
+    <div class="stat-box"><div class="stat-icon">📖</div><div class="stat-value" id="total-reviewed">-</div><div class="stat-label">累计复习</div></div>
+    <div class="stat-box"><div class="stat-icon">⏱️</div><div class="stat-value" id="total-minutes">-</div><div class="stat-label">学习分钟</div></div>
+</div>
+
+<!-- 热力图 -->
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-calendar-alt"></i> 学习热力图（近 90 天）</h2>
+    <div class="heatmap-container" id="heatmap"></div>
+</div>
+
+<!-- 每日趋势 -->
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-chart-line"></i> 每日复习趋势（近 30 天）</h2>
+    <canvas id="daily-chart" height="100"></canvas>
+</div>
+
+<!-- 分类掌握度 -->
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-bullseye"></i> 分类掌握度</h2>
+    <div class="mastery-bars" id="mastery-bars">
+        <p class="text-muted">加载中...</p>
+    </div>
+</div>
+
+<!-- 保留率曲线 -->
+<div class="card mb-4">
+    <h2 class="card-title"><i class="fas fa-brain"></i> 知识保留率曲线</h2>
+    <canvas id="retention-chart" height="100"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    const subjectId = {{ subject.id }};
+    
+    // 加载数据
+    const resp = await fetch(`/subjects/${subjectId}/stats/api`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    
+    const s = data.summary;
+    document.getElementById('streak-days').textContent = s.streak_days || '0';
+    document.getElementById('today-reviewed').textContent = s.today_reviewed || '0';
+    document.getElementById('due-now').textContent = s.due_now || '0';
+    document.getElementById('accuracy-7d').textContent = s.accuracy_7d + '%';
+    document.getElementById('total-reviewed').textContent = s.total_reviewed || '0';
+    document.getElementById('total-minutes').textContent = s.total_minutes || '0';
+    
+    // 热力图
+    renderHeatmap(data.heatmap);
+    
+    // 每日趋势图
+    renderDailyChart(data.daily_trend);
+    
+    // 分类掌握度
+    renderMasteryBars(data.category_mastery);
+    
+    // 保留曲线
+    renderRetentionChart(data.retention_curve);
+});
+
+// ========== 热力图 ==========
+function renderHeatmap(heatmapData) {
+    const container = document.getElementById('heatmap');
+    const today = new Date();
+    const cells = [];
+    let dayOfWeek = today.getDay(); // 0=Sun
+    
+    // 从 90 天前开始，按周排列
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - (today.getDay() + 90));
+    
+    // 生成 90 天的日期
+    const days = [];
+    for (let i = 0; i < 90; i++) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + i);
+        const key = d.toISOString().split('T')[0];
+        days.push({ date: key, count: heatmapData[key] || 0 });
+    }
+    
+    // 按周分组
+    const weeks = [];
+    let week = [];
+    for (let i = 0; i < days.length; i++) {
+        if (i > 0 && i % 7 === 0) {
+            weeks.push(week);
+            week = [];
+        }
+        week.push(days[i]);
+    }
+    if (week.length) weeks.push(week);
+    
+    // 渲染
+    const maxCount = Math.max(...days.map(d => d.count), 1);
+    let html = '<div class="heatmap-weeks">';
+    for (const week of weeks) {
+        html += '<div class="heatmap-week">';
+        for (const day of week) {
+            const level = day.count === 0 ? 0 : day.count <= 2 ? 1 : day.count <= 5 ? 2 : 3;
+            const title = `${day.date}: ${day.count} 次复习`;
+            html += `<div class="heatmap-cell level-${level}" title="${title}"></div>`;
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    html += '<div class="heatmap-legend"><span>少</span>';
+    for (let i = 0; i <= 3; i++) html += `<div class="heatmap-cell level-${i}"></div>`;
+    html += '<span>多</span></div>';
+    container.innerHTML = html;
+}
+
+// ========== 每日趋势 ==========
+function renderDailyChart(dailyData) {
+    if (!dailyData || dailyData.length === 0) {
+        document.getElementById('daily-chart').parentElement.innerHTML = '<p class="text-muted">暂无数据</p>';
+        return;
+    }
+    new Chart(document.getElementById('daily-chart'), {
+        type: 'bar',
+        data: {
+            labels: dailyData.map(d => d.date.slice(5)),
+            datasets: [
+                { label: '复习数', data: dailyData.map(d => d.reviewed), backgroundColor: 'rgba(67,97,238,0.5)', yAxisID: 'y' },
+                { label: '正确率%', data: dailyData.map(d => d.accuracy), type: 'line', borderColor: '#2ec4b6', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { position: 'left', title: { display: true, text: '复习数' } },
+                y1: { position: 'right', min: 0, max: 100, title: { display: true, text: '正确率%' } }
+            }
+        }
+    });
+}
+
+// ========== 分类掌握度 ==========
+function renderMasteryBars(categories) {
+    const container = document.getElementById('mastery-bars');
+    if (!categories || categories.length === 0) {
+        container.innerHTML = '<p class="text-muted">暂无数据，先做一些题吧</p>';
+        return;
+    }
+    let html = '';
+    for (const c of categories) {
+        const color = c.accuracy >= 80 ? '#2ec4b6' : c.accuracy >= 50 ? '#ffb703' : '#e63946';
+        html += `<div class="mastery-row">
+            <div class="mastery-name">${c.name} <span class="badge badge-secondary">${c.due || 0} 待复习</span></div>
+            <div class="mastery-bar-bg"><div class="mastery-bar" style="width:${c.accuracy}%;background:${color};"></div></div>
+            <div class="mastery-value" style="color:${color}">${c.accuracy}% (${c.reviewed} 题)</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+// ========== 保留曲线 ==========
+function renderRetentionChart(retentionData) {
+    if (!retentionData || retentionData.length === 0) {
+        document.getElementById('retention-chart').parentElement.innerHTML = '<p class="text-muted">暂无数据</p>';
+        return;
+    }
+    new Chart(document.getElementById('retention-chart'), {
+        type: 'line',
+        data: {
+            labels: retentionData.map(d => d.days + '天'),
+            datasets: [{
+                label: '保留率%',
+                data: retentionData.map(d => d.total > 0 ? Math.round(d.retained / d.total * 100) : 0),
+                borderColor: '#4361ee',
+                backgroundColor: 'rgba(67,97,238,0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: { y: { min: 0, max: 100, title: { display: true, text: '保留率%' } } }
+        }
+    });
+}
+</script>
+
+<style>
+    .stats-overview { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-box { background: white; border-radius: var(--border-radius); padding: 1.25rem; box-shadow: var(--box-shadow); text-align: center; }
+    .stat-box .stat-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .stat-box .stat-value { font-size: 1.75rem; font-weight: 700; }
+    .stat-box .stat-label { color: var(--gray-600); font-size: 0.85rem; }
+    
+    /* 热力图 */
+    .heatmap-container { padding: 1rem 0; }
+    .heatmap-weeks { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 0.5rem; }
+    .heatmap-week { display: flex; flex-direction: column; gap: 3px; }
+    .heatmap-cell { width: 12px; height: 12px; border-radius: 2px; cursor: pointer; }
+    .heatmap-cell.level-0 { background-color: var(--gray-200); }
+    .heatmap-cell.level-1 { background-color: rgba(67,97,238,0.3); }
+    .heatmap-cell.level-2 { background-color: rgba(67,97,238,0.6); }
+    .heatmap-cell.level-3 { background-color: #4361ee; }
+    .heatmap-legend { display: flex; align-items: center; gap: 4px; margin-top: 0.5rem; color: var(--gray-600); font-size: 0.85rem; }
+    
+    /* 分类掌握度 */
+    .mastery-bars { display: flex; flex-direction: column; gap: 0.75rem; }
+    .mastery-row { display: flex; align-items: center; gap: 1rem; }
+    .mastery-name { min-width: 150px; font-weight: 500; }
+    .mastery-bar-bg { flex: 1; background: var(--gray-200); border-radius: 4px; height: 12px; overflow: hidden; }
+    .mastery-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+    .mastery-value { min-width: 120px; text-align: right; font-weight: 600; font-size: 0.9rem; }
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; font-size: 0.75rem; border-radius: 50rem; background: var(--gray-300); color: var(--gray-700); }
+</style>
+{% endblock %}

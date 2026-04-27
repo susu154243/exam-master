@@ -1,0 +1,41 @@
+{% extends 'admin/base.html' %}
+{% block title %}仪表盘 - 管理后台{% endblock %}
+{% block content %}
+<div class="admin-header">
+    <h1><i class="fas fa-tachometer-alt"></i> 仪表盘</h1>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-box">
+        <div class="stat-icon" style="color: var(--primary-color);"><i class="fas fa-users"></i></div>
+        <div class="stat-value">{{ active_users }}</div>
+        <div class="stat-label">活跃用户</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-icon" style="color: var(--success-color);"><i class="fas fa-book"></i></div>
+        <div class="stat-value">{{ active_subjects }}</div>
+        <div class="stat-label">科目数</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-icon" style="color: var(--warning-color);"><i class="fas fa-file-alt"></i></div>
+        <div class="stat-value">{{ active_questions }}</div>
+        <div class="stat-label">题目数</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-icon" style="color: var(--info-color);"><i class="fas fa-chart-line"></i></div>
+        <div class="stat-value">{{ total_answers }}</div>
+        <div class="stat-label">答题次数</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">快捷操作</h2>
+    <div class="d-flex gap-3 flex-wrap">
+        <a href="{{ url_for('admin.users') }}" class="btn btn-primary"><i class="fas fa-users"></i> 用户管理</a>
+        <a href="{{ url_for('admin.subjects') }}" class="btn btn-success"><i class="fas fa-book"></i> 科目管理</a>
+        <a href="{{ url_for('admin.questions') }}" class="btn btn-warning"><i class="fas fa-file-alt"></i> 题目管理</a>
+        <a href="{{ url_for('admin.permissions') }}" class="btn btn-info"><i class="fas fa-key"></i> 权限分配</a>
+        <a href="{{ url_for('admin.import_page') }}" class="btn btn-outline-primary"><i class="fas fa-upload"></i> 批量导入</a>
+    </div>
+</div>
+{% endblock %}
