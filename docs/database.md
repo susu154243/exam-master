@@ -3,7 +3,7 @@
 ## 概述
 
 - **数据库类型**: SQLite 3
-- **文件路径**: `/exam-master/database.db`
+- **文件路径**: `/keyin/database.db`
 - **外键**: 已启用 (`PRAGMA foreign_keys = ON`)
 - **表数量**: 10
 

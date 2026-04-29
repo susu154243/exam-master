@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}ExamMaster{% endblock %}</title>
+    <title>{% block title %}刻印{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -41,8 +41,8 @@
         <!-- 页脚 -->
         <footer style="text-align: center; margin-top: 2rem; color: var(--gray-600);">
             <p class="footer-text">
-                &copy; {{ current_year|default(2023) }} ExamMaster | 
-                <a href="https://github.com/CiE-XinYuChen/EXAM-MASTER" class="footer-link" target="_blank">
+                &copy; {{ current_year|default(2023) }} 刻印 | 
+                <a href="https://github.com/susu154243/keyin" class="footer-link" target="_blank">
                     <i class="fab fa-github"></i> GitHub
                 </a>
             </p>

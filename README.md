@@ -1,6 +1,8 @@
-# ExamMaster
+# 刻印 (KeyIn)
 
 > 多科目在线考试系统 · Flask + SQLite + SM-2 间隔重复
+
+寓意：通过科学的间隔重复，将知识深深"刻"在脑海里。
 
 **版本**: v0.6.0  
 **最后更新**: 2026-04-29
@@ -10,7 +12,7 @@
 ## 快速开始
 
 ```bash
-cd /exam-master
+cd /keyin
 source venv/bin/activate
 python3 app.py
 # 访问 http://localhost:32220
@@ -21,7 +23,7 @@ python3 app.py
 ## 项目结构
 
 ```
-/exam-master/
+/keyin/
 ├── app.py              # 用户端路由（答题、收藏、统计等）
 ├── admin.py            # 管理端路由（用户/科目/题目/权限管理）
 ├── models.py           # 数据模型层（数据库操作封装）

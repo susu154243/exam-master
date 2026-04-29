@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ExamMaster - 答题端（重构版 v0.6.0）
+刻印 (KeyIn) - 答题端（重构版 v0.6.0）
 支持多科目、权限控制、分类练习。
 """
 import os
@@ -35,7 +35,7 @@ from auth import login_required, get_current_user
 from admin import admin_bp
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'exam-master-2026-secret-key-change-me')
+app.secret_key = os.environ.get('SECRET_KEY', 'keyin-2026-secret-key-change-me')
 
 # 注册管理端 Blueprint
 app.register_blueprint(admin_bp)
