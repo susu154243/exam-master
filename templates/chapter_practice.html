@@ -7,8 +7,8 @@
     <!-- 主内容区 -->
     <div class="practice-main">
         <div class="practice-header-bar">
-            <a href="{{ url_for('practice_setup', subject_id=subject.id, category_id=category.id) }}" class="btn btn-outline-primary btn-sm">
-                <i class="fas fa-arrow-left"></i> 返回设置
+            <a href="{{ url_for('study_setup', subject_id=subject.id, category_id=category.id) }}" class="btn btn-outline-primary btn-sm">
+                <i class="fas fa-arrow-left"></i> 返回学习设置
             </a>
             <span class="practice-title-text">{{ category.name }}</span>
             <!-- P1-4: 进度显示 -->

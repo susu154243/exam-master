@@ -21,6 +21,7 @@ from models import (
     get_categories_tree, update_user_last_login,
     get_due_questions, get_new_questions, get_review_progress,
     update_review_schedule, get_review_schedule, is_question_mastered, get_db,
+    get_due_today, get_study_progress, infer_quality, get_question_attempt_stats,
     get_stats_summary, get_daily_trend, get_heatmap_data,
     get_category_mastery, get_retention_curve,
     # 新增封装函数
@@ -251,55 +252,75 @@ def practice_category(subject_id, category_id):
 
 # ==================== 章节练习：模式选择 + 考试/练习模式 ====================
 
-@app.route('/subjects/<int:subject_id>/practice/<int:category_id>/setup')
+@app.route('/subjects/<int:subject_id>/study/<int:category_id>/setup')
 @login_required
-def practice_setup(subject_id, category_id):
-    """练习设置页：模式选择 + 题量选择（P2-9: 显示分类进度）"""
+def study_setup(subject_id, category_id):
+    """学习设置页：今日复习 + 进度展示 + 模式选择"""
     cat = get_category(category_id)
     if not cat or cat['subject_id'] != subject_id:
         abort(404)
-    total = get_question_count_by_category(category_id)
     subject = get_subject_by_id(subject_id)
     user_id = session['user_id']
 
-    # P2-9: 统计分类进度
-    mastered = 0
-    due_review = 0
-    from datetime import datetime
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    import sqlite3
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT question_id FROM review_schedule WHERE user_id = ?""", (user_id,))
-    reviewed_ids = {row['question_id'] for row in cur.fetchall()}
-    for qid in reviewed_ids:
-        rs = get_review_schedule(user_id, qid)
-        if rs:
-            if rs['repetitions'] >= 3 and rs['ease_factor'] >= 2.5 and rs['interval'] >= 15:
-                mastered += 1
-            if rs['next_review'] <= now:
-                due_review += 1
-    # 分类内的已掌握数
-    cur.execute("""
-        SELECT COUNT(*) as mastered_count FROM review_schedule rs
-        JOIN questions q ON q.id = rs.question_id
-        WHERE rs.user_id = ? AND q.category_id = ?
-        AND rs.repetitions >= 3 AND rs.ease_factor >= 2.5 AND rs.interval >= 15
-    """, (user_id, category_id))
-    mastered_in_cat = cur.fetchone()[0]
-    cur.execute("""
-        SELECT COUNT(*) as reviewed_in_cat FROM review_schedule rs
-        JOIN questions q ON q.id = rs.question_id
-        WHERE rs.user_id = ? AND q.category_id = ?
-    """, (user_id, category_id))
-    reviewed_in_cat = cur.fetchone()[0]
-    conn.close()
+    # 学习进度统计
+    progress = get_study_progress(user_id, category_id)
 
-    return render_template('practice_setup.html',
-                          subject=subject, category=cat, total=total,
-                          reviewed_in_cat=reviewed_in_cat,
-                          mastered_in_cat=mastered_in_cat,
-                          due_review=due_review)
+    # 今日待复习题目列表
+    due_today_list = get_due_today(user_id, category_id)
+    # 为每题添加推断评分
+    for d in due_today_list:
+        d['inferred_quality'] = infer_quality(d)
+
+    # 获取今日复习已完成数（已在本会话中回答的）
+    answered_today = set()
+    p = session.get('practice', {})
+    if p.get('category_id') == category_id:
+        answered_today = set(p.get('answered', {}).keys())
+
+    # 做题次数统计
+    attempt_stats = get_question_attempt_stats(user_id, category_id)
+
+    return render_template('study_setup.html',
+                          subject=subject, category=cat,
+                          progress=progress,
+                          due_today_list=due_today_list,
+                          answered_today=answered_today,
+                          attempt_stats=attempt_stats)
+
+
+# 旧路由兼容：重定向到新学习设置页
+@app.route('/subjects/<int:subject_id>/practice/<int:category_id>/setup')
+@login_required
+def practice_setup_redirect(subject_id, category_id):
+    return redirect(url_for('study_setup', subject_id=subject_id, category_id=category_id))
+
+
+@app.route('/subjects/<int:subject_id>/study/<int:category_id>/today')
+@login_required
+def study_today_review(subject_id, category_id):
+    """今日复习入口：只复习今日到期的题目"""
+    cat = get_category(category_id)
+    if not cat or cat['subject_id'] != subject_id:
+        abort(404)
+    due_today_list = get_due_today(session['user_id'], category_id)
+    if not due_today_list:
+        flash('🎉 今日没有需要复习的题目！', 'success')
+        return redirect(url_for('study_setup', subject_id=subject_id, category_id=category_id))
+
+    # 初始化会话队列（仅今日待复习题目）
+    session['practice'] = {
+        'category_id': category_id,
+        'subject_id': subject_id,
+        'queue': [d['id'] for d in due_today_list],
+        'retry_count': {},
+        'answered_correct_first': 0,
+        'answered_wrong': 0,
+        'stubborn': [],
+        'total_attempts': 0,
+        'initial_count': len(due_today_list),
+        'is_today_review': True,
+    }
+    return redirect(url_for('chapter_practice_next', subject_id=subject_id, category_id=category_id))
 
 
 def _get_chapter_questions(subject_id, category_id, count=None):
@@ -413,7 +434,7 @@ def chapter_practice_next(subject_id, category_id):
     """练习模式：从队列取下一题"""
     p = session.get('practice', {})
     if not p:
-        return redirect(url_for('practice_setup', subject_id=subject_id, category_id=category_id))
+        return redirect(url_for('study_setup', subject_id=subject_id, category_id=category_id))
 
     queue = p.get('queue', [])
     if not queue:

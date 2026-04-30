@@ -749,6 +749,155 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
     return result
 
 
+def get_due_today(user_id, category_id):
+    """获取今日待复习的题目（next_review <= now）"""
+    from datetime import datetime
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT q.*, rs.ease_factor, rs.interval, rs.repetitions, rs.next_review
+        FROM questions q
+        JOIN review_schedule rs ON rs.question_id = q.id AND rs.user_id = ?
+        WHERE q.category_id = ? AND q.status = 1 AND rs.next_review <= ?
+        ORDER BY rs.next_review ASC
+    """, (user_id, category_id, now))
+    due = [serialize_row(r) for r in cur.fetchall()]
+    conn.close()
+    return due
+
+
+def get_study_progress(user_id, category_id):
+    """获取分类学习进度统计（已学习/已掌握/待复习/评分分布）"""
+    from datetime import datetime
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    cur = conn.cursor()
+
+    # 总题目数
+    cur.execute("SELECT COUNT(*) FROM questions WHERE category_id = ? AND status = 1", (category_id,))
+    total = cur.fetchone()[0]
+
+    # 已复习（有复习记录）
+    cur.execute("""
+        SELECT COUNT(DISTINCT q.id) FROM questions q
+        JOIN review_schedule rs ON rs.question_id = q.id AND rs.user_id = ?
+        WHERE q.category_id = ?
+    """, (user_id, category_id))
+    reviewed = cur.fetchone()[0]
+
+    # 已掌握
+    cur.execute("""
+        SELECT COUNT(*) FROM review_schedule rs
+        JOIN questions q ON q.id = rs.question_id
+        WHERE rs.user_id = ? AND q.category_id = ?
+        AND rs.repetitions >= 3 AND rs.ease_factor >= 2.5 AND rs.interval >= 15
+    """, (user_id, category_id))
+    mastered = cur.fetchone()[0]
+
+    # 今日待复习
+    cur.execute("""
+        SELECT COUNT(*) FROM review_schedule rs
+        JOIN questions q ON q.id = rs.question_id
+        WHERE rs.user_id = ? AND q.category_id = ?
+        AND rs.next_review <= ?
+    """, (user_id, category_id, now))
+    due_today = cur.fetchone()[0]
+
+    # 评分分布（根据 ease_factor 和 repetitions 推断）
+    cur.execute("""
+        SELECT rs.ease_factor, rs.repetitions, rs.interval FROM review_schedule rs
+        JOIN questions q ON q.id = rs.question_id
+        WHERE rs.user_id = ? AND q.category_id = ?
+    """, (user_id, category_id))
+    records = cur.fetchall()
+
+    dist = {'忘了': 0, '模糊': 0, '一般': 0, '简单': 0, '秒答': 0}
+    for r in records:
+        dist[infer_quality(r)] += 1
+
+    conn.close()
+    return {
+        'total': total,
+        'reviewed': reviewed,
+        'mastered': mastered,
+        'due_today': due_today,
+        'distribution': dist,
+        'new': total - reviewed,
+    }
+
+
+def get_question_attempt_stats(user_id, category_id):
+    """获取分类下每道题的做题次数统计"""
+    from datetime import datetime
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            q.id,
+            q.stem,
+            COUNT(h.id) as attempt_count,
+            CASE WHEN COUNT(h.id) > 0
+                THEN ROUND(SUM(h.correct) * 100.0 / COUNT(h.id), 1)
+                ELSE 0
+            END as accuracy,
+            rs.ease_factor,
+            rs.repetitions,
+            rs.interval,
+            rs.next_review
+        FROM questions q
+        LEFT JOIN history h ON h.question_id = q.id AND h.user_id = ?
+        LEFT JOIN review_schedule rs ON rs.question_id = q.id AND rs.user_id = ?
+        WHERE q.category_id = ? AND q.status = 1
+        GROUP BY q.id
+    """, (user_id, user_id, category_id))
+    rows = cur.fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        row = dict(r)
+        row['inferred_quality'] = infer_quality(row) if row['repetitions'] is not None else None
+        # 下次复习时间描述
+        if row['next_review']:
+            from datetime import datetime as dt
+            next_rev = dt.strptime(row['next_review'], '%Y-%m-%d %H:%M:%S')
+            diff = (next_rev - dt.now()).days
+            if diff < 0:
+                row['next_review_label'] = '已过期'
+            elif diff == 0:
+                row['next_review_label'] = '今天'
+            elif diff == 1:
+                row['next_review_label'] = '明天'
+            elif diff < 7:
+                row['next_review_label'] = f'{diff}天后'
+            else:
+                row['next_review_label'] = f'{diff}天后'
+        else:
+            row['next_review_label'] = '未开始'
+        results.append(row)
+    return results
+
+
+def infer_quality(record):
+    """根据SM-2记录推断上次评分倾向"""
+    reps = record['repetitions']
+    ease = record['ease_factor']
+    interval = record['interval']
+    if reps == 0 and ease < 1.8:
+        return '忘了'
+    elif reps == 0 and ease < 2.2:
+        return '模糊'
+    elif reps >= 3 and interval >= 15:
+        return '秒答'
+    elif reps >= 2 and ease >= 2.4:
+        return '简单'
+    elif reps >= 1:
+        return '一般'
+    else:
+        return '模糊'
+
+
 # ==================== 统计模块 ====================
 
 def get_stats_summary(user_id, subject_id):

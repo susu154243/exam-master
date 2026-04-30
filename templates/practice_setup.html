@@ -110,7 +110,7 @@ function startPractice() {
     if (!count || count < 1) { alert('题量至少为1'); return; }
     const url = selectedMode === 'exam'
         ? '{{ url_for("chapter_exam", subject_id=subject.id, category_id=category.id) }}?count=' + count
-        : '{{ url_for("chapter_practice_start", subject_id=subject.id, category_id=category.id) }}?count=' + count;
+        : '{{ url_for("study_setup", subject_id=subject.id, category_id=category.id) }}?mode=practice&count=' + count;
     window.location.href = url;
 }
 
