@@ -15,6 +15,7 @@ import zstandard
 import tempfile
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from auth import admin_required, login_required
+from models import get_db
 
 # ==================== apkg 导入工具函数 ====================
 
@@ -118,6 +119,41 @@ def _clean_answer(answer_str: str) -> str:
     text = re.sub(r'<[^>]+>', '', answer_str).strip()
     letters = re.findall(r'[A-F]', text)
     return ''.join(letters)
+
+
+def _generate_question_id(category_name: str, stem: str) -> str | None:
+    """根据分类名和题干生成有意义的题目 ID，如 '1.2-01'。
+    
+    规则:
+    - 从分类名提取前缀 (如 '1.2' from '1.2 现代化基础设施')
+    - 从题干提取题号 (如 '01' from '01.以下关于信息化描述')
+    - 组合为 'prefix-num' (如 '1.2-01')
+    - 如果 ID 已存在或无法提取，返回 None（回退到 UUID）
+    """
+    # 提取分类前缀
+    cat_match = re.match(r'^(\d+\.\d+)', category_name or '')
+    if not cat_match:
+        return None
+    prefix = cat_match.group(1)
+
+    # 提取题干序号 (支持 "01." "3、" "第3题." 等格式)
+    num_match = re.match(r'^(?:第)?(\d+)(?:题)?[\.、．]', stem or '')
+    if not num_match:
+        return None
+    num = int(num_match.group(1))
+    num_str = f'{num:02d}'
+
+    qid = f'{prefix}-{num_str}'
+
+    # 检查是否已存在
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM questions WHERE id = ?', (qid,))
+    exists = cur.fetchone()
+    conn.close()
+    if exists:
+        return None  # 已存在，回退 UUID
+    return qid
 
 
 def _extract_apkg(apkg_path: str, subject_id: int):
@@ -344,9 +380,13 @@ def _extract_apkg(apkg_path: str, subject_id: int):
                         old_ref = f'src="{img_name}"'
                         new_ref = f'src="/static/media/{img_name}"'
                         explanation = explanation.replace(old_ref, new_ref)
-                
+
+                # 构造有意义的 ID: "1.2-01"
+                q_id = _generate_question_id(level3_name, stem)
+
                 # 写入数据库
                 qdata = {
+                    'id': q_id,
                     'stem': stem,
                     'options': json.dumps(options, ensure_ascii=False),
                     'answer': answer,
@@ -360,7 +400,7 @@ def _extract_apkg(apkg_path: str, subject_id: int):
                     'exam_year': None,
                     'source': 'practice',
                 }
-                
+
                 create_question(qdata)
                 result["imported"] += 1
                 
