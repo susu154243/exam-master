@@ -83,6 +83,10 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
+# 启动时一次性初始化表和列（替代之前每个请求都执行的 @before_request）
+from lib.db import init_tables
+init_tables()
+
 # 注册管理端 Blueprint
 app.register_blueprint(admin_bp)
 
@@ -1010,18 +1014,10 @@ def chapter_practice_answer(subject_id, category_id, qid):
         user_answer = request.form.get('answer', '')
         if not user_answer:
             # 未选择答案，不允许提交
-            result_msg = '请先选择一个答案再提交'
+            p = session.get('practice', {})
             queue = p.get('queue', [])
-            return render_template('practice.html',
-                                  question=question,
-                                  options=question['options'],
-                                  queue=queue,
-                                  current_qid=qid,
-                                  result_msg=result_msg,
-                                  subject_id=subject_id,
-                                  category_id=category_id,
-                                  progress=p.get('progress', {}),
-                                  practice_stats=p.get('practice_stats', {}))
+            flash('请先选择一个答案再提交', 'warning')
+            return redirect(url_for('chapter_practice_qid', subject_id=subject_id, category_id=category_id, qid=qid))
         is_correct = user_answer == correct_answer
         is_partial = False
         save_answer(session['user_id'], qid, user_answer, 1 if is_correct else 0, subject_id)
@@ -1593,12 +1589,11 @@ def submit_exam(subject_id, year):
     for q in questions:
         user_answer = request.form.get(f'answer_{q["id"]}', '')
         if q['qtype_text'] == 'multiple':
-            if set(user_answer) == set(q['answer']):
-                correct_count += 1
+            is_correct = set(user_answer) == set(q['answer'])
         else:
-            if user_answer == q['answer']:
-                correct_count += 1
-        is_correct = (set(user_answer) == set(q['answer'])) if q['qtype_text'] == 'multiple' else (user_answer == q['answer'])
+            is_correct = user_answer == q['answer']
+        if is_correct:
+            correct_count += 1
         source = 'exam' if year > 0 else 'mock'
         save_answer(session['user_id'], q['id'], user_answer, 1 if is_correct else 0, subject_id, source=source)
     
@@ -2017,45 +2012,6 @@ def server_error(e):
 
 
 # ==================== 练习进度持久化 ====================
-
-@app.before_request
-def _ensure_practice_table():
-    """确保 practice_sessions 表已创建（懒初始化）"""
-    from models import init_practice_sessions_table
-    init_practice_sessions_table()
-
-
-@app.before_request
-def _ensure_exam_records_table():
-    """确保 exam_records 表已创建（懒初始化）"""
-    from models import init_exam_records_table
-    init_exam_records_table()
-
-
-@app.before_request
-def _ensure_notifications_table():
-    """确保 notifications 表已创建（懒初始化）"""
-    from models import init_notifications_table
-    init_notifications_table()
-
-
-@app.before_request
-def _ensure_admin_read_columns():
-    """确保留言和笔记表有 read_by_admin_at 列（懒迁移）"""
-    from models import get_db
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("ALTER TABLE question_comments ADD COLUMN read_by_admin_at DATETIME")
-    except Exception:
-        pass  # 列已存在
-    try:
-        cur.execute("ALTER TABLE question_notes ADD COLUMN read_by_admin_at DATETIME")
-    except Exception:
-        pass
-    conn.commit()
-    conn.close()
-
 
 @app.route('/subjects/<int:subject_id>/practice/<int:category_id>/save-progress', methods=['POST'])
 @login_required

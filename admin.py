@@ -34,7 +34,6 @@ from models import (
     get_category, get_subject_by_id,
 
     grant_user_license, revoke_user_license, get_all_licenses, search_licenses,
-    simulate_one_day,
 )
 
 # ==================== apkg 导入工具函数 ====================
@@ -543,47 +542,6 @@ def dashboard():
                           comment_active=comment_unread,
                           note_count=note_unread)
 
-
-# ==================== 模拟学习 ====================
-
-@admin_bp.route('/simulate', methods=['GET', 'POST'])
-def simulate():
-    from models import get_all_subjects_admin
-    
-    all_subjects = get_all_subjects_admin()
-    result = None
-    
-    if request.method == 'POST':
-        subject_ids = request.form.getlist('subject_ids', type=int)
-        days = request.form.get('days', 1, type=int)
-        new_cards = request.form.get('new_cards', 20, type=int)
-        
-        if not subject_ids:
-            flash('请至少选择一个科目', 'warning')
-            return render_template('admin/simulate.html', all_subjects=all_subjects)
-        
-        if days < 1 or days > 30:
-            flash('天数必须在 1-30 之间', 'warning')
-            return render_template('admin/simulate.html', all_subjects=all_subjects)
-        
-        # 管理员账号 ID=3
-        admin_user_id = 3
-        total_result = {}
-        grand_total = {'new_count': 0, 'review_count': 0, 'correct_count': 0, 'total_count': 0}
-        
-        for day in range(1, days + 1):
-            day_result = simulate_one_day(admin_user_id, subject_ids, new_cards)
-            for name, stats in day_result.items():
-                if name not in total_result:
-                    total_result[name] = {'new_count': 0, 'review_count': 0, 'correct_count': 0, 'total_count': 0}
-                for key in stats:
-                    total_result[name][key] += stats[key]
-                    grand_total[key] += stats[key]
-        
-        result = {'by_subject': total_result, 'total': grand_total, 'days': days}
-        flash(f'模拟完成：{days}天，共 {grand_total["total_count"]} 道题', 'success')
-    
-    return render_template('admin/simulate.html', all_subjects=all_subjects, result=result)
 
 
 # ==================== 用户管理 ====================
