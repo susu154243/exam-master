@@ -983,7 +983,10 @@ def chapter_practice_answer(subject_id, category_id, qid):
         is_correct = True
         is_partial = False
         result_msg = ''  # 学习卡片不需要"回答正确/错误"提示
-        user_answer = ''
+        user_answer = request.form.get('user_text_answer', '').strip()[:2000]
+        # 保存用户作答到 history
+        if user_answer:
+            save_answer(session['user_id'], qid, user_answer, 1, subject_id)
     elif question['qtype_text'] == 'multiple':
         user_answer = ','.join(request.form.getlist('answer'))
         is_correct = set(user_answer) == set(correct_answer)
@@ -1596,7 +1599,8 @@ def submit_exam(subject_id, year):
             if user_answer == q['answer']:
                 correct_count += 1
         is_correct = (set(user_answer) == set(q['answer'])) if q['qtype_text'] == 'multiple' else (user_answer == q['answer'])
-        save_answer(session['user_id'], q['id'], user_answer, 1 if is_correct else 0, subject_id)
+        source = 'exam' if year > 0 else 'mock'
+        save_answer(session['user_id'], q['id'], user_answer, 1 if is_correct else 0, subject_id, source=source)
     
     score = (correct_count / total * 100) if total > 0 else 0
     
@@ -1743,51 +1747,79 @@ def statistics(subject_id):
 def stats_api(subject_id):
     """统计分析 - JSON API（P2-7: 增加 FSRS 掌握数据）"""
     user_id = session['user_id']
+    source = request.args.get('source', None)  # practice|exam|mock|None
+    if source == 'all':
+        source = None
 
-    summary = get_stats_summary(user_id, subject_id)
-    daily = get_daily_trend(user_id, subject_id, days=30)
+    summary = get_stats_summary(user_id, subject_id, source)
+    daily = get_daily_trend(user_id, subject_id, days=30, source=source)
     from models import get_year_heatmap, get_calendar_stats
     from datetime import datetime as _dt
     current_year = _dt.now().year
-    heatmap = get_year_heatmap(user_id, subject_id, current_year)
-    calendar_stats = get_calendar_stats(user_id, subject_id, current_year)
-    categories = get_category_mastery(user_id, subject_id)
-    retention = get_retention_curve(user_id, subject_id)
+    heatmap = get_year_heatmap(user_id, subject_id, current_year, source)
+    calendar_stats = get_calendar_stats(user_id, subject_id, current_year, source)
+    categories = get_category_mastery(user_id, subject_id, source)
+    retention = get_retention_curve(user_id, subject_id, source)
 
     # P2-7: 掌握度统计（FSRS）
     from models import _mastered_sql_condition
     conn = get_db()
     cur = conn.cursor()
     now = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
-    cur.execute(f"""
-        SELECT COUNT(*) as mastered FROM review_schedule rs
-        JOIN questions q ON q.id = rs.question_id
-        WHERE rs.user_id = ? AND q.subject_id = ?
-        AND {_mastered_sql_condition()}
-    """, (user_id, subject_id))
-    mastered = cur.fetchone()['mastered']
-    cur.execute("""
-        SELECT COUNT(*) as due FROM review_schedule rs
-        JOIN questions q ON q.id = rs.question_id
-        WHERE rs.user_id = ? AND q.subject_id = ?
-        AND rs.next_review <= ?
-    """, (user_id, subject_id, now))
-    due = cur.fetchone()['due']
-    cur.execute("""
-        SELECT COUNT(*) as reviewed FROM review_schedule rs
-        JOIN questions q ON q.id = rs.question_id
-        WHERE rs.user_id = ? AND q.subject_id = ?
-    """, (user_id, subject_id))
-    reviewed = cur.fetchone()['reviewed']
+    if source:
+        # 按来源过滤：关联 history 表
+        cur.execute(f"""
+            SELECT COUNT(DISTINCT rs.question_id) as mastered FROM review_schedule rs
+            JOIN questions q ON q.id = rs.question_id
+            JOIN history h ON h.question_id = rs.question_id AND h.user_id = rs.user_id AND h.source = ?
+            WHERE rs.user_id = ? AND q.subject_id = ?
+            AND {_mastered_sql_condition()}
+        """, (source, user_id, subject_id))
+        mastered = cur.fetchone()['mastered']
+        cur.execute("""
+            SELECT COUNT(DISTINCT rs.question_id) as due FROM review_schedule rs
+            JOIN questions q ON q.id = rs.question_id
+            JOIN history h ON h.question_id = rs.question_id AND h.user_id = rs.user_id AND h.source = ?
+            WHERE rs.user_id = ? AND q.subject_id = ?
+            AND rs.next_review <= ?
+        """, (source, user_id, subject_id, now))
+        due = cur.fetchone()['due']
+        cur.execute("""
+            SELECT COUNT(DISTINCT h.question_id) as reviewed FROM history h
+            JOIN questions q ON q.id = h.question_id
+            WHERE h.user_id = ? AND q.subject_id = ? AND h.source = ?
+        """, (user_id, subject_id, source))
+        reviewed = cur.fetchone()['reviewed']
+    else:
+        cur.execute(f"""
+            SELECT COUNT(*) as mastered FROM review_schedule rs
+            JOIN questions q ON q.id = rs.question_id
+            WHERE rs.user_id = ? AND q.subject_id = ?
+            AND {_mastered_sql_condition()}
+        """, (user_id, subject_id))
+        mastered = cur.fetchone()['mastered']
+        cur.execute("""
+            SELECT COUNT(*) as due FROM review_schedule rs
+            JOIN questions q ON q.id = rs.question_id
+            WHERE rs.user_id = ? AND q.subject_id = ?
+            AND rs.next_review <= ?
+        """, (user_id, subject_id, now))
+        due = cur.fetchone()['due']
+        cur.execute("""
+            SELECT COUNT(*) as reviewed FROM review_schedule rs
+            JOIN questions q ON q.id = rs.question_id
+            WHERE rs.user_id = ? AND q.subject_id = ?
+        """, (user_id, subject_id))
+        reviewed = cur.fetchone()['reviewed']
     cur.execute("SELECT COUNT(*) as total FROM questions WHERE subject_id = ? AND status = 1", (subject_id,))
     total = cur.fetchone()['total']
-    
+
     # P2-11: 工作负载预测
     from models import predict_review_load, get_daily_learning_time, get_hourly_distribution
     load_forecast = predict_review_load(user_id, subject_id, days=30)
-    learning_time = get_daily_learning_time(user_id, subject_id, days=30)
-    hourly = get_hourly_distribution(user_id, subject_id, days=30)
-    
+    learning_time = get_daily_learning_time(user_id, subject_id, days=30, source=source)
+    hourly = get_hourly_distribution(user_id, subject_id, days=30, source=source)
+
     conn.close()
 
     return jsonify({
@@ -1808,6 +1840,7 @@ def stats_api(subject_id):
             'new': total - reviewed,
         },
         'load_forecast': load_forecast,
+        'source': source,
     })
 
 
@@ -1817,8 +1850,11 @@ def stats_calendar(subject_id, year):
     """获取指定年份的日历热力图数据"""
     from models import get_year_heatmap, get_calendar_stats
     user_id = session['user_id']
-    heatmap = get_year_heatmap(user_id, subject_id, year)
-    calendar_stats = get_calendar_stats(user_id, subject_id, year)
+    source = request.args.get('source', None)
+    if source == 'all':
+        source = None
+    heatmap = get_year_heatmap(user_id, subject_id, year, source)
+    calendar_stats = get_calendar_stats(user_id, subject_id, year, source)
     return jsonify({
         'year': year,
         'heatmap': heatmap,

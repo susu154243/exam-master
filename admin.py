@@ -33,7 +33,8 @@ from models import (
     set_user_session_token, clear_user_session_token,
     get_category, get_subject_by_id,
 
-    grant_user_license, revoke_user_license, get_all_licenses,
+    grant_user_license, revoke_user_license, get_all_licenses, search_licenses,
+    simulate_one_day,
 )
 
 # ==================== apkg 导入工具函数 ====================
@@ -543,6 +544,48 @@ def dashboard():
                           note_count=note_unread)
 
 
+# ==================== 模拟学习 ====================
+
+@admin_bp.route('/simulate', methods=['GET', 'POST'])
+def simulate():
+    from models import get_all_subjects_admin
+    
+    all_subjects = get_all_subjects_admin()
+    result = None
+    
+    if request.method == 'POST':
+        subject_ids = request.form.getlist('subject_ids', type=int)
+        days = request.form.get('days', 1, type=int)
+        new_cards = request.form.get('new_cards', 20, type=int)
+        
+        if not subject_ids:
+            flash('请至少选择一个科目', 'warning')
+            return render_template('admin/simulate.html', all_subjects=all_subjects)
+        
+        if days < 1 or days > 30:
+            flash('天数必须在 1-30 之间', 'warning')
+            return render_template('admin/simulate.html', all_subjects=all_subjects)
+        
+        # 管理员账号 ID=3
+        admin_user_id = 3
+        total_result = {}
+        grand_total = {'new_count': 0, 'review_count': 0, 'correct_count': 0, 'total_count': 0}
+        
+        for day in range(1, days + 1):
+            day_result = simulate_one_day(admin_user_id, subject_ids, new_cards)
+            for name, stats in day_result.items():
+                if name not in total_result:
+                    total_result[name] = {'new_count': 0, 'review_count': 0, 'correct_count': 0, 'total_count': 0}
+                for key in stats:
+                    total_result[name][key] += stats[key]
+                    grand_total[key] += stats[key]
+        
+        result = {'by_subject': total_result, 'total': grand_total, 'days': days}
+        flash(f'模拟完成：{days}天，共 {grand_total["total_count"]} 道题', 'success')
+    
+    return render_template('admin/simulate.html', all_subjects=all_subjects, result=result)
+
+
 # ==================== 用户管理 ====================
 
 @admin_bp.route('/users')
@@ -600,14 +643,34 @@ def reset_password(user_id):
 
 @admin_bp.route('/licenses')
 def licenses():
-    """授权管理页面"""
-    all_licenses = get_all_licenses()
+    """授权管理页面（支持筛选/分页）"""
+    user = request.args.get('user', '').strip()
+    subject_id = request.args.get('subject_id', type=int)
+    status = request.args.get('status')
+    page = request.args.get('page', 1, type=int)
+    
+    filtered_licenses, total = search_licenses(
+        user=user if user else None,
+        subject_id=subject_id,
+        status=status if status in ('valid', 'expiring_soon', 'expired') else None,
+        page=page,
+        per_page=20
+    )
+    
+    total_pages = max(1, (total + 19) // 20)
+    
     all_users = get_all_users()
     all_subjects = get_all_subjects_admin()
     return render_template('admin/licenses.html', 
-                          licenses=all_licenses, 
+                          licenses=filtered_licenses, 
                           users=all_users, 
-                          subjects=all_subjects)
+                          subjects=all_subjects,
+                          total=total,
+                          page=page,
+                          total_pages=total_pages,
+                          current_user=user,
+                          current_subject=subject_id,
+                          current_status=status)
 
 
 @admin_bp.route('/licenses/grant', methods=['POST'])
@@ -1416,20 +1479,31 @@ from datetime import datetime, timedelta
 @admin_bp.route('/codes')
 @admin_required
 def admin_codes():
-    """邀请码列表"""
+    """邀请码列表（支持筛选/搜索）"""
     page = request.args.get('page', 1, type=int)
     subject_id = request.args.get('subject_id', type=int)
     status = request.args.get('status', 'all')
+    search = request.args.get('search', '').strip()
+    creator = request.args.get('creator', type=int)
     
-    codes, total = list_invitation_codes(page=page, subject_id=subject_id, status=status)
+    codes, total = list_invitation_codes(
+        page=page, subject_id=subject_id, status=status,
+        search=search if search else None,
+        creator=creator
+    )
     total_pages = max(1, (total + 20 - 1) // 20)
     
     subjects = get_all_subjects_admin()
     
+    # 获取所有可能的创建人
+    from models import get_all_users
+    all_users = get_all_users()
+    
     return render_template('admin/codes.html', codes=codes, page=page,
                           total_pages=total_pages, total=total,
                           subjects=subjects, current_subject=subject_id,
-                          current_status=status,
+                          current_status=status, current_search=search,
+                          current_creator=creator, all_users=all_users,
                           current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
@@ -1617,14 +1691,14 @@ def admin_resolve_feedback(fid):
     fb = cur.fetchone()
     conn.close()
     if fb:
-        q = get_question(fb.get('question_id'))
+        q = get_question(fb['question_id'])
         q_title = ''
         if q:
             stem = re.sub(r'<[^>]+>', '', q.get('stem', '') or '')
             q_title = stem[:30]
         title = f'您提交的题目纠错已处理'
-        content = f'题目: {q_title}\n您的反馈: {fb.get("content", "")[:100]}'
-        create_notification(fb['user_id'], 'feedback_resolved', title, content, fb.get('question_id'))
+        content = f'题目: {q_title}\n您的反馈: {fb["content"][:100]}'
+        create_notification(fb['user_id'], 'feedback_resolved', title, content, fb['question_id'])
     
     flash('已标记为已处理', 'success')
     return redirect(url_for('admin.admin_feedbacks'))
@@ -1644,14 +1718,14 @@ def admin_dismiss_feedback(fid):
     fb = cur.fetchone()
     conn.close()
     if fb:
-        q = get_question(fb.get('question_id'))
+        q = get_question(fb['question_id'])
         q_title = ''
         if q:
             stem = re.sub(r'<[^>]+>', '', q.get('stem', '') or '')
             q_title = stem[:30]
         title = f'您提交的题目纠错已忽略'
-        content = f'题目: {q_title}\n您的反馈: {fb.get("content", "")[:100]}'
-        create_notification(fb['user_id'], 'feedback_dismissed', title, content, fb.get('question_id'))
+        content = f'题目: {q_title}\n您的反馈: {fb["content"][:100]}'
+        create_notification(fb['user_id'], 'feedback_dismissed', title, content, fb['question_id'])
     
     flash('已忽略', 'success')
     return redirect(url_for('admin.admin_feedbacks'))

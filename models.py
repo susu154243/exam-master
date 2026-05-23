@@ -474,6 +474,7 @@ def sanitize_html(text: str) -> str:
 
 def get_question(qid):
     conn = get_db()
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT * FROM questions WHERE id = ? AND status = 1", (qid,))
     result = cur.fetchone()
@@ -1725,6 +1726,98 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
     }
 
 
+def simulate_one_day(user_id, subject_ids, new_cards_per_subject=20):
+    """模拟一天学习：每个科目学20张新卡 + 复习到期卡片
+    
+    参数:
+        user_id: 用户ID
+        subject_ids: 科目ID列表
+        new_cards_per_subject: 每科目新卡数量
+    
+    返回:
+        {subject_name: {new_count, review_count, correct_count, total_count}}
+    """
+    import random
+    from datetime import datetime, timedelta
+    
+    # 质量分布：忘了(5%) / 模糊(10%) / 一般(35%) / 简单(40%) / 秒答(10%)
+    QUALITY_WEIGHTS = [0.05, 0.10, 0.35, 0.40, 0.10]
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    result = {}
+    
+    for subject_id in subject_ids:
+        # 获取科目名称
+        cur.execute("SELECT name FROM subjects WHERE id = ?", (subject_id,))
+        row = cur.fetchone()
+        if not row:
+            continue
+        subject_name = row[0]
+        
+        stats = {'new_count': 0, 'review_count': 0, 'correct_count': 0, 'total_count': 0}
+        
+        # ── 新卡学习 ──
+        leaf_cats = get_leaf_categories(subject_id)
+        # 按分类分配新卡数量
+        if leaf_cats:
+            per_cat = new_cards_per_subject // len(leaf_cats)
+            remainder = new_cards_per_subject - per_cat * len(leaf_cats)
+        else:
+            per_cat = 0
+            remainder = 0
+        
+        new_questions = []
+        for i, cat in enumerate(leaf_cats):
+            limit = per_cat + (1 if i < remainder else 0)
+            cur.execute("""
+                SELECT q.* FROM questions q
+                WHERE q.category_id = ? AND q.status = 1
+                AND q.id NOT IN (SELECT question_id FROM review_schedule WHERE user_id = ?)
+                ORDER BY RANDOM()
+                LIMIT ?
+            """, (cat['id'], user_id, limit))
+            new_questions.extend([dict(r) for r in cur.fetchall()])
+        
+        for q in new_questions:
+            quality = random.choices([0, 1, 2, 3, 4], weights=QUALITY_WEIGHTS, k=1)[0]
+            is_correct = 1 if quality >= 2 else 0
+            # 新题直接记录答题历史
+            cur.execute("""
+                INSERT INTO history (user_id, question_id, user_answer, correct, subject_id, source)
+                VALUES (?, ?, ?, ?, ?, 'simulate')
+            """, (user_id, q['id'], q.get('answer', ''), is_correct, subject_id))
+            # 更新复习计划
+            conn.commit()  # 先提交 history 让 update_review_schedule 能读到
+            update_review_schedule(user_id, q['id'], subject_id, quality)
+            
+            stats['new_count'] += 1
+            stats['total_count'] += 1
+            stats['correct_count'] += is_correct
+        
+        # ── 到期复习 ──
+        due_questions = get_due_questions(user_id, subject_id=subject_id, limit=200)
+        for q in due_questions:
+            quality = random.choices([0, 1, 2, 3, 4], weights=QUALITY_WEIGHTS, k=1)[0]
+            is_correct = 1 if quality >= 2 else 0
+            cur.execute("""
+                INSERT INTO history (user_id, question_id, user_answer, correct, subject_id, source)
+                VALUES (?, ?, ?, ?, ?, 'simulate')
+            """, (user_id, q['id'], q.get('answer', ''), is_correct, subject_id))
+            conn.commit()
+            update_review_schedule(user_id, q['id'], subject_id, quality)
+            
+            stats['review_count'] += 1
+            stats['total_count'] += 1
+            stats['correct_count'] += is_correct
+        
+        result[subject_name] = stats
+    
+    conn.close()
+    return result
+
+
 def delete_review_schedule(user_id, question_id):
     """删除复习计划记录（取消掌握）"""
     conn = get_db()
@@ -1856,34 +1949,88 @@ def get_user_licenses(user_id):
 
 def get_all_licenses():
     """获取所有用户授权（管理后台用）"""
+    return search_licenses(user=None, subject_id=None, status=None)
+
+
+def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20):
+    """筛选/分页查询用户授权
+    
+    Args:
+        user: 用户名或ID（模糊匹配）
+        subject_id: 科目ID筛选
+        status: 状态筛选 ('valid'/'expiring_soon'/'expired'，None=全部)
+        page: 页码
+        per_page: 每页条数
+    
+    Returns:
+        (licenses, total)
+    """
+    from datetime import datetime
     conn = get_db()
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("""
+    
+    where = []
+    params = []
+    
+    if user:
+        try:
+            uid = int(user)
+            where.append('(u.id = ? OR u.username LIKE ?)')
+            params.extend([uid, f'%{user}%'])
+        except ValueError:
+            where.append('u.username LIKE ?')
+            params.append(f'%{user}%')
+    
+    if subject_id:
+        where.append('ul.subject_id = ?')
+        params.append(subject_id)
+    
+    base_sql = """
         SELECT ul.id, u.id as user_id, u.username, ul.subject_id, s.name as subject_name,
                ul.expires_at, ul.created_at
         FROM user_licenses ul
         JOIN users u ON u.id = ul.user_id
         JOIN subjects s ON s.id = ul.subject_id
-        ORDER BY ul.expires_at
-    """)
+    """
+    
+    if where:
+        base_sql += ' WHERE ' + ' AND '.join(where)
+    
+    # 获取总数
+    cur.execute(f"SELECT COUNT(*) FROM ({base_sql})", params)
+    total = cur.fetchone()[0]
+    
+    # 分页查询
+    offset = (page - 1) * per_page
+    cur.execute(base_sql + ' ORDER BY ul.expires_at LIMIT ? OFFSET ?', params + [per_page, offset])
+    
     licenses = []
     for row in cur.fetchall():
-        from datetime import datetime
-        expires_at = datetime.strptime(row[5], '%Y-%m-%d %H:%M:%S')
+        expires_at = datetime.strptime(row['expires_at'], '%Y-%m-%d %H:%M:%S')
         days_left = (expires_at - datetime.now()).days
-        licenses.append({
-            'id': row[0],
-            'user_id': row[1],
-            'username': row[2],
-            'subject_id': row[3],
-            'subject_name': row[4],
-            'expires_at': row[5],
-            'created_at': row[6],
+        lic = {
+            'id': row['id'],
+            'user_id': row['user_id'],
+            'username': row['username'],
+            'subject_id': row['subject_id'],
+            'subject_name': row['subject_name'],
+            'expires_at': row['expires_at'],
+            'created_at': row['created_at'],
             'days_left': days_left,
             'is_expired': days_left <= 0
-        })
+        }
+        # 状态筛选
+        if status == 'valid' and (lic['is_expired'] or lic['days_left'] <= 30):
+            continue
+        if status == 'expiring_soon' and not (0 < lic['days_left'] <= 30):
+            continue
+        if status == 'expired' and not lic['is_expired']:
+            continue
+        licenses.append(lic)
+    
     conn.close()
-    return licenses
+    return licenses, total
 
 def predict_review_load(user_id, subject_id, days=30):
     """预测未来 N 天每日复习量
@@ -2287,44 +2434,61 @@ def infer_quality(record):
 
 # ==================== 统计模块 ====================
 
-def get_stats_summary(user_id, subject_id):
-    """获取学习统计概览，仅统计练习/复习，排除考试"""
+def _source_filter_sql(source, table_alias='h'):
+    """根据 source 参数生成 history 表的 WHERE 条件片段。
+    source=None → 汇总（无过滤）
+    source='practice'/'exam'/'mock' → 仅统计对应来源
+    table_alias: 表别名，默认 'h'，无别名时传 ''
+    """
+    if source:
+        col = f"{table_alias}.source" if table_alias else "source"
+        return f"AND {col} = ?", [source]
+    return "", []
+
+
+def get_stats_summary(user_id, subject_id, source=None):
+    """获取学习统计概览
+    source=None → 汇总，source='practice'/'exam'/'mock' → 按来源过滤
+    """
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now()
     today_str = now.strftime('%Y-%m-%d')
     seven_ago = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-    
-    # 总复习数（来自 history，排除考试）
-    cur.execute("SELECT COUNT(*) FROM history WHERE user_id = ? AND subject_id = ? AND (source IS NULL OR source = 'practice')", (user_id, subject_id))
+
+    src_cond, src_params = _source_filter_sql(source, table_alias='')
+
+    # 总复习数
+    cur.execute(f"SELECT COUNT(*) FROM history WHERE user_id = ? AND subject_id = ? {src_cond}",
+               (user_id, subject_id, *src_params))
     total_reviewed = cur.fetchone()[0]
-    
+
     # 今日复习数
-    cur.execute("""
+    cur.execute(f"""
         SELECT COUNT(*) FROM history WHERE user_id = ? AND subject_id = ?
-        AND DATE(timestamp) = ? AND (source IS NULL OR source = 'practice')
-    """, (user_id, subject_id, today_str))
+        AND DATE(timestamp) = ? {src_cond.replace('h.', '')}
+    """, (user_id, subject_id, today_str, *src_params))
     today_reviewed = cur.fetchone()[0]
-    
-    # 待复习数
+
+    # 待复习数（不受 source 影响，复习计划是全局的）
     cur.execute("SELECT COUNT(*) FROM review_schedule WHERE user_id = ? AND next_review <= ?",
                (user_id, now.strftime('%Y-%m-%d %H:%M:%S')))
     due_now = cur.fetchone()[0]
-    
+
     # 近7天正确率
-    cur.execute("""
+    cur.execute(f"""
         SELECT AVG(CASE WHEN correct = 1 THEN 1.0 ELSE 0.0 END) * 100
-        FROM history WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? AND (source IS NULL OR source = 'practice')
-    """, (user_id, subject_id, seven_ago))
+        FROM history WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? {src_cond.replace('h.', '')}
+    """, (user_id, subject_id, seven_ago, *src_params))
     acc_7d = cur.fetchone()[0]
     accuracy_7d = round(acc_7d or 0, 1)
-    
+
     # 连续学习天数
-    cur.execute("""
+    cur.execute(f"""
         SELECT DISTINCT DATE(timestamp) as study_date
-        FROM history WHERE user_id = ? AND subject_id = ? AND (source IS NULL OR source = 'practice')
+        FROM history WHERE user_id = ? AND subject_id = ? {src_cond.replace('h.', '')}
         ORDER BY study_date DESC
-    """, (user_id, subject_id))
+    """, (user_id, subject_id, *src_params))
     dates = [row[0] for row in cur.fetchall()]
     streak = 0
     expected = datetime.now()
@@ -2336,10 +2500,10 @@ def get_stats_summary(user_id, subject_id):
             continue
         else:
             break
-    
+
     # 累计学习时长（估算：每题平均30秒）
     total_minutes = round(total_reviewed * 0.5, 0)
-    
+
     conn.close()
     return {
         'total_reviewed': total_reviewed,
@@ -2351,28 +2515,33 @@ def get_stats_summary(user_id, subject_id):
     }
 
 
-def get_daily_trend(user_id, subject_id, days=30):
-    """获取每日复习趋势（含新题数），仅统计练习/复习，排除考试"""
+def get_daily_trend(user_id, subject_id, days=30, source=None):
+    """获取每日复习趋势（含新题数）
+    source=None → 汇总，source='practice'/'exam'/'mock' → 按来源过滤
+    """
     conn = get_db()
     cur = conn.cursor()
     since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    
-    # 每日总答题 + 新题数（该用户该科目第一次做此题，仅限练习/复习）
-    cur.execute("""
+
+    src_cond, src_params = _source_filter_sql(source)
+    new_src_cond = src_cond.replace('h.source', 'h2.source')
+    p = (user_id, subject_id, user_id, subject_id, since, *src_params, *src_params)
+
+    cur.execute(f"""
         SELECT DATE(h.timestamp) as date,
                COUNT(*) as reviewed,
                ROUND(AVG(CASE WHEN h.correct = 1 THEN 100.0 ELSE 0.0 END), 1) as accuracy,
                SUM(CASE WHEN h.id = (
                    SELECT MIN(h2.id) FROM history h2
                    WHERE h2.user_id = ? AND h2.subject_id = ? AND h2.question_id = h.question_id
-                     AND (h2.source IS NULL OR h2.source = 'practice')
+                     {new_src_cond}
                ) THEN 1 ELSE 0 END) as new_questions
         FROM history h
         WHERE h.user_id = ? AND h.subject_id = ? AND DATE(h.timestamp) >= ?
-          AND (h.source IS NULL OR h.source = 'practice')
+          {src_cond}
         GROUP BY DATE(h.timestamp) ORDER BY date
-    """, (user_id, subject_id, user_id, subject_id, since))
-    
+    """, p)
+
     result = [{
         'date': r[0],
         'reviewed': r[1],
@@ -2426,45 +2595,48 @@ def get_heatmap_data(user_id, subject_id, days=90):
     return result
 
 
-def get_year_heatmap(user_id, subject_id, year):
+def get_year_heatmap(user_id, subject_id, year, source=None):
     """获取指定年份热力图数据（全年 365/366 天）"""
     conn = get_db()
     cur = conn.cursor()
     since = f'{year}-01-01'
     until = f'{year}-12-31'
-    
-    cur.execute("""
+
+    src_cond, src_params = _source_filter_sql(source, table_alias='')
+    cur.execute(f"""
         SELECT DATE(timestamp) as date, COUNT(*) as count
         FROM history WHERE user_id = ? AND subject_id = ?
-        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ?
+        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ? {src_cond}
         GROUP BY DATE(timestamp) ORDER BY date
-    """, (user_id, subject_id, since, until))
-    
+    """, (user_id, subject_id, since, until, *src_params))
+
     result = {r[0]: r[1] for r in cur.fetchall()}
     conn.close()
     return result
 
 
-def get_calendar_stats(user_id, subject_id, year):
+def get_calendar_stats(user_id, subject_id, year, source=None):
     """获取日历统计摘要：连续打卡、总打卡天数、总答题数、月度出勤率"""
     from datetime import date
     conn = get_db()
     cur = conn.cursor()
-    
+
+    src_cond, src_params = _source_filter_sql(source, table_alias='')
+
     # 该科目所有学习日期
     since = f'{year}-01-01'
     until = f'{year}-12-31'
-    cur.execute("""
+    cur.execute(f"""
         SELECT DISTINCT DATE(timestamp) as study_date
         FROM history WHERE user_id = ? AND subject_id = ?
-        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ?
+        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ? {src_cond}
         ORDER BY study_date DESC
-    """, (user_id, subject_id, since, until))
+    """, (user_id, subject_id, since, until, *src_params))
     all_dates = [row[0] for row in cur.fetchall()]
-    
+
     # 总打卡天数
     total_checkin = len(all_dates)
-    
+
     # 连续打卡天数（从今天往前数）
     streak = 0
     expected = date.today()
@@ -2474,12 +2646,12 @@ def get_calendar_stats(user_id, subject_id, year):
             expected = expected - timedelta(days=1)
         elif streak > 0:
             break
-    
+
     # 总答题数
-    cur.execute("""
+    cur.execute(f"""
         SELECT COUNT(*) FROM history WHERE user_id = ? AND subject_id = ?
-        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ?
-    """, (user_id, subject_id, since, until))
+        AND DATE(timestamp) >= ? AND DATE(timestamp) <= ? {src_cond}
+    """, (user_id, subject_id, since, until, *src_params))
     total_questions = cur.fetchone()[0]
     
     # 月度出勤率
@@ -2516,18 +2688,19 @@ def get_calendar_stats(user_id, subject_id, year):
     }
 
 
-def get_daily_learning_time(user_id, subject_id, days=30):
+def get_daily_learning_time(user_id, subject_id, days=30, source=None):
     """获取每日学习时长（按会话计算，间隔>30分钟视为新会话）"""
     conn = get_db()
     cur = conn.cursor()
     since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    cur.execute("""
+    src_cond, src_params = _source_filter_sql(source, table_alias='')
+    cur.execute(f"""
         SELECT DATE(timestamp) as date, timestamp
         FROM history
-        WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? AND (source IS NULL OR source = 'practice')
+        WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? {src_cond}
         ORDER BY DATE(timestamp), timestamp
-    """, (user_id, subject_id, since))
+    """, (user_id, subject_id, since, *src_params))
 
     # 按日期分组
     daily = {}  # date -> [datetime1, datetime2, ...]
@@ -2562,55 +2735,111 @@ def get_daily_learning_time(user_id, subject_id, days=30):
     return result
 
 
-def get_hourly_distribution(user_id, subject_id, days=30):
+def get_hourly_distribution(user_id, subject_id, days=30, source=None):
     """获取 24 小时答题分布"""
     conn = get_db()
     cur = conn.cursor()
     since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    cur.execute("""
+    src_cond, src_params = _source_filter_sql(source, table_alias='')
+    cur.execute(f"""
         SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as cnt
         FROM history
-        WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? AND (source IS NULL OR source = 'practice')
+        WHERE user_id = ? AND subject_id = ? AND DATE(timestamp) >= ? {src_cond}
         GROUP BY hour ORDER BY hour
-    """, (user_id, subject_id, since))
+    """, (user_id, subject_id, since, *src_params))
 
     result = {h: c for h, c in cur.fetchall()}
     conn.close()
     return result
 
 
-def get_category_mastery(user_id, subject_id):
-    """获取分类掌握度，包含所有分类（含未学的），排除考试数据。
-    使用子查询避免 history 多行与 review_schedule 的交叉乘积。"""
+def get_category_mastery(user_id, subject_id, source=None):
+    """获取分类掌握度，包含所有分类（含未学的）。
+    source=None → 汇总，source='practice'/'exam'/'mock' → 按来源过滤
+    将 level=3 子分类数据聚合到 level=2 父分类，避免嵌套子查询性能问题。"""
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     mastered_cond = _mastered_sql_condition()
-    
-    cur.execute(f"""
-        SELECT c.id as category_id, c.name as category_name,
-               (SELECT COUNT(*) FROM questions q WHERE q.category_id = c.id AND q.status = 1 AND q.subject_id = ?) as total,
-               (SELECT COUNT(DISTINCT h.question_id) FROM history h JOIN questions q ON q.id = h.question_id WHERE h.question_id IN (SELECT id FROM questions WHERE category_id = c.id AND status = 1 AND subject_id = ?) AND h.user_id = ? AND (h.source IS NULL OR h.source = 'practice')) as reviewed,
-               (SELECT ROUND(AVG(CASE WHEN h.correct = 1 THEN 100.0 ELSE 0.0 END), 1) FROM history h JOIN questions q ON q.id = h.question_id WHERE h.question_id IN (SELECT id FROM questions WHERE category_id = c.id AND status = 1 AND subject_id = ?) AND h.user_id = ? AND (h.source IS NULL OR h.source = 'practice')) as accuracy,
-               (SELECT COUNT(*) FROM review_schedule rs JOIN questions q ON q.id = rs.question_id WHERE rs.question_id IN (SELECT id FROM questions WHERE category_id = c.id AND status = 1 AND subject_id = ?) AND rs.user_id = ? AND {mastered_cond}) as mastered,
-               (SELECT COUNT(*) FROM review_schedule rs JOIN questions q ON q.id = rs.question_id WHERE rs.question_id IN (SELECT id FROM questions WHERE category_id = c.id AND status = 1 AND subject_id = ?) AND rs.user_id = ? AND rs.next_review <= ? AND rs.card_state != 'reinforce') as due
+
+    # 1. 获取所有 level=2 分类及其子分类 ID 映射
+    cur.execute("""
+        SELECT c.id, c.name, c.parent_id
         FROM categories c
-        WHERE c.subject_id = ? AND c.name IS NOT NULL AND c.level = 2
+        WHERE c.subject_id = ? AND c.name IS NOT NULL AND c.level IN (2, 3)
         ORDER BY c.id
-    """, (subject_id, subject_id, user_id, subject_id, user_id, subject_id, user_id, subject_id, user_id, now, subject_id))
-    
+    """, (subject_id,))
+    all_cats = cur.fetchall()
+
+    # 构建 level=2 分类 → 包含的题目分类 ID 列表
+    cat_map = {}  # level2_id -> {name, cat_ids: [level2_id, child_level3_ids...]}
+    for cid, cname, parent_id in all_cats:
+        if parent_id == 0:  # level=2
+            cat_map[cid] = {'name': cname, 'cat_ids': [cid]}
+        else:  # level=3，聚合到父分类
+            if parent_id not in cat_map:
+                # 父分类可能不存在（理论上不应该），创建一个占位
+                cat_map[parent_id] = {'name': f'未知分类#{parent_id}', 'cat_ids': []}
+            cat_map[parent_id]['cat_ids'].append(cid)
+
+    # 收集所有需要查询的分类 ID（仅 level=3，因为题目都在 level=3）
+    all_child_ids = set()
+    for info in cat_map.values():
+        all_child_ids.update(info['cat_ids'])
+    if not all_child_ids:
+        return []
+    child_list = sorted(all_child_ids)
+    child_ph = ','.join('?' for _ in child_list)
+
+    # 2. 批量获取各分类下的题目总数（题目全部在 level=3）
+    cur.execute(f"""
+        SELECT category_id, COUNT(*) as cnt
+        FROM questions WHERE subject_id = ? AND status = 1 AND category_id IN ({child_ph})
+        GROUP BY category_id
+    """, (subject_id, *child_list))
+    q_by_cat = {r[0]: r[1] for r in cur.fetchall()}
+
+    # 3. 批量获取用户答题数据（参数化 source 过滤）
+    h_src_cond, h_src_params = _source_filter_sql(source) if source else ("", [])
+    cur.execute(f"""
+        SELECT q.category_id, COUNT(DISTINCT h.question_id), ROUND(AVG(CASE WHEN h.correct = 1 THEN 100.0 ELSE 0.0 END), 1)
+        FROM history h JOIN questions q ON q.id = h.question_id
+        WHERE h.user_id = ? AND q.subject_id = ? AND q.category_id IN ({child_ph}) {h_src_cond}
+        GROUP BY q.category_id
+    """, (user_id, subject_id, *child_list, *h_src_params))
+    h_by_cat = {r[0]: {'reviewed': r[1], 'accuracy': r[2]} for r in cur.fetchall()}
+
+    # 4. 批量获取复习计划数据
+    cur.execute(f"""
+        SELECT q.category_id,
+               SUM(CASE WHEN {mastered_cond} THEN 1 ELSE 0 END),
+               SUM(CASE WHEN rs.next_review <= ? AND rs.card_state != 'reinforce' THEN 1 ELSE 0 END)
+        FROM review_schedule rs JOIN questions q ON q.id = rs.question_id
+        WHERE rs.user_id = ? AND q.subject_id = ? AND q.category_id IN ({child_ph})
+        GROUP BY q.category_id
+    """, (now, user_id, subject_id, *child_list))
+    rs_by_cat = {r[0]: {'mastered': r[1] or 0, 'due': r[2] or 0} for r in cur.fetchall()}
+
+    # 5. 聚合到 level=2 分类
     result = []
-    for r in cur.fetchall():
-        total = r[2] or 0
-        reviewed = r[3] or 0
-        accuracy = r[4]
-        mastered = r[5] or 0
-        due = r[6] or 0
+    for cid in sorted(cat_map.keys()):
+        info = cat_map[cid]
+        total = sum(q_by_cat.get(x, 0) for x in info['cat_ids'])
+        reviewed = sum(h_by_cat.get(x, {}).get('reviewed', 0) for x in info['cat_ids'])
+        mastered = sum(rs_by_cat.get(x, {}).get('mastered', 0) for x in info['cat_ids'])
+        due = sum(rs_by_cat.get(x, {}).get('due', 0) for x in info['cat_ids'])
         if total == 0:
             continue
+        # accuracy 按 reviewed 加权平均
+        acc_sum = sum(
+            (h_by_cat.get(x, {}).get('accuracy') or 0) * h_by_cat.get(x, {}).get('reviewed', 0)
+            for x in info['cat_ids']
+        )
+        accuracy = round(acc_sum / reviewed, 1) if reviewed > 0 else None
+
         result.append({
-            'name': r[1],
+            'name': info['name'],
             'total': total,
             'reviewed': reviewed,
             'unstudied': total - reviewed,
@@ -2623,27 +2852,28 @@ def get_category_mastery(user_id, subject_id):
     return result
 
 
-def get_retention_curve(user_id, subject_id):
+def get_retention_curve(user_id, subject_id, source=None):
     """获取保留率曲线（遗忘曲线）"""
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now()
-    
+
     now_str = now.strftime('%Y-%m-%d %H:%M:%S')
-    cur.execute("""
-        SELECT 
+    h_src = f"AND h.source = '{source}'" if source else ""
+    cur.execute(f"""
+        SELECT
             CAST(julianday(?) - julianday(rs.last_review) AS INTEGER) as days_since,
             COUNT(*) as total,
             SUM(CASE WHEN rs.ease_factor >= 1.5 THEN 1 ELSE 0 END) as retained
         FROM review_schedule rs
         JOIN questions q ON q.id = rs.question_id
-        JOIN history h ON h.question_id = rs.question_id AND h.user_id = rs.user_id AND (h.source IS NULL OR h.source = 'practice')
+        JOIN history h ON h.question_id = rs.question_id AND h.user_id = rs.user_id {h_src}
         WHERE rs.user_id = ? AND q.subject_id = ? AND rs.last_review IS NOT NULL
         GROUP BY days_since
         HAVING total >= 1
         ORDER BY days_since
     """, (now_str, user_id, subject_id))
-    
+
     result = [{'days': r[0], 'total': r[1], 'retained': r[2]} for r in cur.fetchall()]
     conn.close()
     return result
@@ -3200,10 +3430,12 @@ def use_invitation_code(code_id, user_id):
         conn.close()
 
 
-def list_invitation_codes(page=1, per_page=20, subject_id=None, status='all'):
+def list_invitation_codes(page=1, per_page=20, subject_id=None, status='all', search=None, creator=None):
     """
     分页列出邀请码。
     status: 'all', 'active', 'used_up', 'expired', 'disabled'
+    search: 邀请码模糊搜索
+    creator: 创建人筛选
     """
     from datetime import datetime
     conn = get_db()
@@ -3226,6 +3458,14 @@ def list_invitation_codes(page=1, per_page=20, subject_id=None, status='all'):
     elif status == 'expired':
         where.append('ic.expires_at IS NOT NULL AND ic.expires_at <= ?')
         params.append(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    
+    if search:
+        where.append('ic.code LIKE ?')
+        params.append(f'%{search}%')
+    
+    if creator:
+        where.append('ic.created_by = ?')
+        params.append(creator)
     
     where_sql = ' AND '.join(where) if where else '1=1'
     

@@ -40,10 +40,22 @@
             <!-- 未答题：显示表单 -->
             {% if not result_msg %}
             {% if is_study_card %}
-            <!-- 学习卡片模式：题干 + 查看答案按钮 -->
+            <!-- 学习卡片模式：题干 + 作答区域 + 查看答案 -->
             <div class="q-stem-full">{{ question.stem | safe }}</div>
-            <form action="{{ url_for('chapter_practice_answer', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post">
+            <form id="studyCardForm" action="{{ url_for('chapter_practice_answer', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post">
                 <input type="hidden" name="answer" value="__study_card__">
+                <div class="study-answer-area">
+                    <label><i class="fas fa-pen"></i> 你的作答</label>
+                    <textarea name="user_text_answer" id="studyAnswerInput" class="form-control" rows="6" placeholder="在此写下你的答案..." oninput="updateStudyCharCount()"></textarea>
+                    <div class="char-count"><span id="studyCharCount">0</span>/2000</div>
+                    <div class="upload-area">
+                        <label class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-image"></i> 添加图片
+                            <input type="file" id="studyAnswerImage" accept="image/*" style="display:none;">
+                        </label>
+                    </div>
+                    <div id="studyImagePreview"></div>
+                </div>
                 <button type="submit" class="btn btn-outline-primary btn-lg mt-3"><i class="fas fa-eye"></i> 查看答案</button>
             </form>
             {% else %}
@@ -93,7 +105,13 @@
             <div class="q-stem">{{ question.stem | safe }}</div>
             {% endif %}
             {% if is_study_card %}
-            <!-- 学习卡片：显示参考答案（题干已在上方显示，此处不再重复） -->
+            <!-- 学习卡片：显示用户作答 + 参考答案 -->
+            {% if user_answer %}
+            <div class="user-answer">
+                <h5><i class="fas fa-pen"></i> 你的作答</h5>
+                <div>{{ user_answer | safe }}</div>
+            </div>
+            {% endif %}
             {% if question.answer %}
             <div class="reference-answer">
                 <h5><i class="fas fa-lightbulb"></i> 参考答案</h5>
@@ -276,6 +294,16 @@
 .reference-answer h5 { color: #d97706; margin-bottom: 0.75rem; font-size: 1rem; }
 .reference-answer div { line-height: 1.9; color: #374151; }
 .reference-answer p { margin-bottom: 0.5rem; }
+
+/* 用户作答区域 */
+.user-answer { background: #e8f4f8; border-left: 4px solid #4a90d9; padding: 1.25rem 1.5rem; margin: 1.5rem 0; border-radius: 0 8px 8px 0; }
+.user-answer h5 { color: #4a90d9; margin-bottom: 0.75rem; font-size: 1rem; }
+.user-answer div { line-height: 1.9; color: #374151; white-space: pre-wrap; }
+
+.study-answer-area { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; margin: 1.5rem 0; }
+.study-answer-area label { display: block; font-weight: 600; margin-bottom: 0.5rem; color: #4a90d9; }
+.study-answer-area textarea { resize: vertical; font-size: 0.95rem; line-height: 1.6; }
+.study-answer-area .char-count { font-size: 0.8rem; color: #666; margin-top: 4px; text-align: right; }
 
 .result-options .q-option { pointer-events: none; }
 .opt-correct { background: rgba(46,196,182,0.1); border-left: 3px solid var(--success-color); }
@@ -569,5 +597,18 @@ document.getElementById('saveProgressBtn')?.addEventListener('click', function()
         btn.innerHTML = '<i class="fas fa-save"></i> 保存进度并退出';
     });
 });
+
+// 学习卡片作答字数统计
+function updateStudyCharCount() {
+    const input = document.getElementById('studyAnswerInput');
+    const counter = document.getElementById('studyCharCount');
+    if (input && counter) {
+        counter.textContent = input.value.length;
+        if (input.value.length > 2000) {
+            input.value = input.value.substring(0, 2000);
+            counter.textContent = '2000';
+        }
+    }
+}
 </script>
 {% endblock %}

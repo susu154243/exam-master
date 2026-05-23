@@ -11,6 +11,18 @@
 
 <h1 class="card-title mb-3"><i class="fas fa-chart-pie"></i> 学习统计</h1>
 
+<!-- Tab 切换 -->
+<div class="source-tabs" id="sourceTabs">
+    <button class="src-tab active" data-source="all" onclick="switchSource('all')"><i class="fas fa-layer-group"></i> 汇总</button>
+    <button class="src-tab" data-source="practice" onclick="switchSource('practice')"><i class="fas fa-book"></i> 章节练习</button>
+    <button class="src-tab" data-source="exam" onclick="switchSource('exam')"><i class="fas fa-file-alt"></i> 历年真题</button>
+    <button class="src-tab" data-source="mock" onclick="switchSource('mock')"><i class="fas fa-bullseye"></i> 模拟考试</button>
+</div>
+<div class="source-indicator">
+    <span class="source-badge source-badge-all" id="sourceBadge">汇总数据</span>
+    <span class="source-desc" id="sourceDesc">全部来源的答题记录与学习数据</span>
+</div>
+
 <!-- 概览卡片 -->
 <div class="stats-overview" id="stats-overview">
     <div class="stat-box"><div class="stat-icon">🔥</div><div class="stat-value" id="streak-days">-</div><div class="stat-label">连续天数</div></div>
@@ -141,13 +153,35 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', async () => {
+// 当前数据源：null=汇总, 'practice'=章节练习, 'exam'=历年真题, 'mock'=模拟考试
+let currentSource = null;
+let chartInstances = {};
+
+function switchSource(source) {
+    currentSource = (source === 'all') ? null : source;
+    document.querySelectorAll('.src-tab').forEach(t => t.classList.toggle('active', t.dataset.source === source));
+    const map = {
+        all:     { text: '汇总数据', desc: '全部来源的答题记录与学习数据', cls: 'source-badge-all' },
+        practice:{ text: '章节练习', desc: '仅统计章节练习的答题与复习数据', cls: 'source-badge-practice' },
+        exam:    { text: '历年真题', desc: '仅统计历年真题的答题数据', cls: 'source-badge-exam' },
+        mock:    { text: '模拟考试', desc: '仅统计模拟考试的答题数据', cls: 'source-badge-mock' },
+    };
+    const m = map[source];
+    document.getElementById('sourceBadge').textContent = m.text;
+    document.getElementById('sourceBadge').className = 'source-badge ' + m.cls;
+    document.getElementById('sourceDesc').textContent = m.desc;
+    loadStats();
+}
+
+async function loadStats() {
     const subjectId = {{ subject.id }};
-    
-    const resp = await fetch(`/subjects/${subjectId}/stats/api`);
+    const src = currentSource || '';
+    const url = src ? `/subjects/${subjectId}/stats/api?source=${src}` : `/subjects/${subjectId}/stats/api`;
+    Object.values(chartInstances).forEach(c => { try { c.destroy(); } catch(e) {} });
+    chartInstances = {};
+    const resp = await fetch(url);
     if (!resp.ok) return;
     const data = await resp.json();
-    
     const s = data.summary;
     document.getElementById('streak-days').textContent = s.streak_days || '0';
     document.getElementById('today-reviewed').textContent = s.today_reviewed || '0';
@@ -155,7 +189,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('accuracy-7d').textContent = s.accuracy_7d + '%';
     document.getElementById('total-reviewed').textContent = s.total_reviewed || '0';
     document.getElementById('total-minutes').textContent = s.total_minutes || '0';
-
     const mastery = data.mastery_summary;
     if (mastery) {
         document.getElementById('mastery-total').textContent = mastery.total;
@@ -167,20 +200,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('mastery-progress').style.width = pct + '%';
         document.getElementById('mastery-progress-text').textContent = `掌握率 ${pct}%（${mastery.mastered}/${mastery.total}）`;
     }
-
     currentCalYear = data.calendar_year;
     renderCalendarHeatmap(data.calendar_year, data.heatmap, data.calendar_stats);
-    
     renderDailyChart(data.daily_trend);
-    
     renderLearningTimeChart(data.learning_time, data.daily_trend);
     renderHourlyChart(data.hourly_distribution);
-    
     renderLoadForecast(data.load_forecast);
-    
     renderMasteryBars(data.category_mastery);
-    
-    // 分类掌握度折叠/展开
+    renderShareCard(s, data.daily_trend, data.learning_time, data.hourly_distribution);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
     const masteryToggle = document.getElementById('mastery-toggle');
     const masteryBody = document.getElementById('mastery-body');
     const masteryChevron = document.getElementById('mastery-chevron');
@@ -190,8 +221,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         masteryBody.style.display = masteryCollapsed ? 'none' : '';
         masteryChevron.style.transform = masteryCollapsed ? 'rotate(-90deg)' : '';
     });
-    
-    renderShareCard(s, data.daily_trend, data.learning_time, data.hourly_distribution);
 });
 
 // ========== 日历热力图 ==========
@@ -199,7 +228,9 @@ let currentCalYear = new Date().getFullYear();
 
 async function loadCalendarYear(year) {
     const subjectId = {{ subject.id }};
-    const resp = await fetch(`/subjects/${subjectId}/stats/calendar/${year}`);
+    const src = currentSource || '';
+    const url = src ? `/subjects/${subjectId}/stats/calendar/${year}?source=${src}` : `/subjects/${subjectId}/stats/calendar/${year}`;
+    const resp = await fetch(url);
     if (!resp.ok) return;
     const data = await resp.json();
     renderCalendarHeatmap(year, data.heatmap, data.calendar_stats);
@@ -269,11 +300,12 @@ function renderCalendarHeatmap(year, heatmapData, calStats) {
 
 // ========== 每日趋势 ==========
 function renderDailyChart(dailyData) {
+    const el = document.getElementById('daily-chart');
     if (!dailyData || dailyData.length === 0) {
-        document.getElementById('daily-chart').parentElement.innerHTML = '<p class="text-muted">暂无数据</p>';
+        el.parentElement.innerHTML = '<p class="text-muted">暂无数据</p>';
         return;
     }
-    new Chart(document.getElementById('daily-chart'), {
+    chartInstances.daily = new Chart(el, {
         type: 'bar',
         data: {
             labels: dailyData.map(d => d.date.slice(5)),
@@ -304,7 +336,7 @@ function renderLearningTimeChart(learningTimeData, dailyTrend) {
     const minutes = dates.map(d => learningTimeData[d]);
     const questions = dates.map(d => { const f = dailyTrend.find(t => t.date === d); return f ? f.reviewed : 0; });
     
-    new Chart(document.getElementById('learning-time-chart'), {
+    chartInstances.learningTime = new Chart(document.getElementById('learning-time-chart'), {
         type: 'bar',
         data: {
             labels: dates.map(d => d.slice(5)),
@@ -335,7 +367,7 @@ function renderHourlyChart(hourlyData) {
     const maxCount = Math.max(...counts, 1);
     const bgColors = counts.map(c => 'rgba(67,97,238,' + (0.15 + (c / maxCount) * 0.75) + ')');
     
-    new Chart(document.getElementById('hourly-chart'), {
+    chartInstances.hourly = new Chart(document.getElementById('hourly-chart'), {
         type: 'bar',
         data: {
             labels: hours,
@@ -364,7 +396,7 @@ function renderLoadForecast(forecastData) {
     
     document.getElementById('load-summary').textContent = '未来 30 天共 ' + totalLoad + ' 次复习，日均 ' + avgLoad.toFixed(1) + ' 次，峰值在 ' + maxDay + '（' + Math.max(...counts) + ' 次）';
     
-    new Chart(document.getElementById('load-chart'), {
+    chartInstances.load = new Chart(document.getElementById('load-chart'), {
         type: 'bar',
         data: {
             labels: dates.map(d => d.slice(5)),
@@ -421,7 +453,7 @@ function renderShareCard(summary, dailyTrend, learningTime, hourlyDist) {
             return `hsla(${hue}, 75%, 50%, 0.9)`;
         });
         
-        new Chart(document.getElementById('share-trend-chart'), {
+        chartInstances.shareTrend = new Chart(document.getElementById('share-trend-chart'), {
             type: 'bar',
             data: {
                 labels: dailyTrend.map(d => d.date.slice(5)),
@@ -457,7 +489,7 @@ function renderShareCard(summary, dailyTrend, learningTime, hourlyDist) {
             return `hsla(${hue}, 70%, 60%, 0.85)`;
         });
         
-        new Chart(document.getElementById('share-learning-time-chart'), {
+        chartInstances.shareLearningTime = new Chart(document.getElementById('share-learning-time-chart'), {
             type: 'bar',
             data: {
                 labels: dates.map(d => d.slice(5)),
@@ -493,7 +525,7 @@ function renderShareCard(summary, dailyTrend, learningTime, hourlyDist) {
             return `hsla(${hue}, 65%, 55%, ${0.5 + (c / maxCount) * 0.4})`;
         });
         
-        new Chart(document.getElementById('share-hourly-chart'), {
+        chartInstances.shareHourly = new Chart(document.getElementById('share-hourly-chart'), {
             type: 'bar',
             data: {
                 labels: periods,
@@ -650,5 +682,20 @@ document.addEventListener('click', (e) => {
     .share-tip { font-size: 12px; color: var(--gray-500); margin: 6px 0 0; }
     @media (max-width: 768px) { .share-overview { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 768px) { .share-charts-row { grid-template-columns: 1fr; } }
+    
+    /* 数据源 Tab 切换 */
+    .source-tabs { display: flex; gap: 4px; background: var(--gray-200); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
+    .src-tab { flex: 1; text-align: center; padding: 10px 6px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--gray-600); transition: all 0.2s; border: none; background: transparent; }
+    .src-tab.active { background: white; color: var(--primary-color); box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: 600; }
+    .src-tab:not(.active):hover { color: var(--gray-700); }
+    .src-tab i { margin-right: 4px; }
+    .source-indicator { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .source-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+    .source-badge-all { background: #e8e5ff; color: #6c5ce7; }
+    .source-badge-practice { background: #e3f2fd; color: #1976d2; }
+    .source-badge-exam { background: #fff3e0; color: #f57c00; }
+    .source-badge-mock { background: #e8f5e9; color: #388e3c; }
+    .source-desc { font-size: 0.8rem; color: var(--gray-500); }
+    @media (max-width: 576px) { .source-tabs { flex-wrap: wrap; } .src-tab { min-width: calc(50% - 4px); } }
 </style>
 {% endblock %}

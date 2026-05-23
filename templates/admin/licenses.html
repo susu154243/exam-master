@@ -39,9 +39,52 @@
     </form>
 </div>
 
+<!-- 筛选栏 -->
+<div class="card mb-3">
+    <h3>筛选授权</h3>
+    <form action="{{ url_for('admin.licenses') }}" method="get" class="form-inline">
+        <div class="form-row">
+            <div class="form-group mr-2">
+                <label>用户</label>
+                <input type="text" name="user" value="{{ current_user or '' }}" placeholder="用户名或ID" class="form-input">
+            </div>
+            <div class="form-group mr-2">
+                <label>科目</label>
+                <select name="subject_id" class="form-select">
+                    <option value="">全部科目</option>
+                    {% for s in subjects %}
+                    <option value="{{ s.id }}" {% if current_subject == s.id %}selected{% endif %}>{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group mr-2">
+                <label>状态</label>
+                <select name="status" class="form-select">
+                    <option value="">全部状态</option>
+                    <option value="valid" {% if current_status == 'valid' %}selected{% endif %}>有效</option>
+                    <option value="expiring_soon" {% if current_status == 'expiring_soon' %}selected{% endif %}>即将过期（≤30天）</option>
+                    <option value="expired" {% if current_status == 'expired' %}selected{% endif %}>已过期</option>
+                </select>
+            </div>
+            <div class="form-group mr-2">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> 搜索</button>
+            </div>
+            <div class="form-group">
+                <a href="{{ url_for('admin.licenses') }}" class="btn btn-secondary"><i class="fas fa-redo"></i> 重置</a>
+            </div>
+        </div>
+    </form>
+    {% if total is defined %}
+    <div class="mt-2" style="color: var(--text-muted); font-size: 0.9em;">
+        共 {{ total }} 条授权记录
+    </div>
+    {% endif %}
+</div>
+
 <!-- 授权列表 -->
 <div class="card">
     <h3>当前授权列表</h3>
+    {% if licenses %}
     <div class="table-container">
         <table class="table">
             <thead>
@@ -84,5 +127,26 @@
             </tbody>
         </table>
     </div>
+    
+    <!-- 分页 -->
+    {% if total_pages > 1 %}
+    <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px;">
+        {% set base_url = url_for('admin.licenses') %}
+        {% if page > 1 %}
+        <a href="{{ base_url }}?page={{ page - 1 }}{% if current_user %}&user={{ current_user }}{% endif %}{% if current_subject %}&subject_id={{ current_subject }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}" class="btn btn-sm btn-secondary">上一页</a>
+        {% endif %}
+        <span style="color: var(--text-muted);">第 {{ page }} / {{ total_pages }} 页</span>
+        {% if page < total_pages %}
+        <a href="{{ base_url }}?page={{ page + 1 }}{% if current_user %}&user={{ current_user }}{% endif %}{% if current_subject %}&subject_id={{ current_subject }}{% endif %}{% if current_status %}&status={{ current_status }}{% endif %}" class="btn btn-sm btn-secondary">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="empty-state" style="text-align: center; padding: 40px; color: var(--text-muted);">
+        <i class="fas fa-key" style="font-size: 2em; margin-bottom: 12px;"></i>
+        <p>暂无匹配的授权记录</p>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
