@@ -4,6 +4,7 @@
 :root {
   /* 颜色变量 */
   --primary-color: #4361ee;
+  --preview-bg: #fff3cd;
   --primary-hover: #3a56e7;
   --secondary-color: #3f8efc;
   --success-color: #2ec4b6;
@@ -37,6 +38,26 @@
 
 html {
   scroll-behavior: smooth;
+}
+
+.preview-banner {
+  background: repeating-linear-gradient(
+    45deg,
+    #fff3cd 0px,
+    #fff3cd 20px,
+    #ffe69c 20px,
+    #ffe69c 40px
+  );
+  color: #856404;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  border-bottom: 2px solid #ffc107;
 }
 
 body {

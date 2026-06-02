@@ -17,11 +17,25 @@ def get_db():
     """获取数据库连接（线程级缓存，避免重复 connect + PRAGMA）"""
     conn = getattr(_local, 'conn', None)
     if conn is None:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
+        conn = _new_connection()
         _local.conn = conn
+    else:
+        # 检查连接是否仍然有效（SQLite 连接在 fork 后会失效）
+        try:
+            conn.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            # 连接已失效，创建新连接
+            conn = _new_connection()
+            _local.conn = conn
+    return conn
+
+
+def _new_connection():
+    """创建新的数据库连接"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -33,6 +47,14 @@ def close_db(exception=None):
             conn.close()
         finally:
             _local.conn = None
+
+
+def reset_db():
+    """强制清除线程连接缓存，不关闭连接（仅设 _local.conn = None）。
+    用于 Gunicorn master 初始化后、fork worker 前调用，
+    确保 fork 后 worker 创建新连接而非继承 master 的旧连接。
+    """
+    _local.conn = None
 
 
 # ==================== 一次性表初始化（启动时调用） ====================

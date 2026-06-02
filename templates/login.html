@@ -7,6 +7,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    {% if is_preview %}
+    <div class="preview-banner">
+        ⚠️ 灰度预览环境 — 当前分支: refactor — 数据与线上共享
+    </div>
+    {% endif %}
     <div class="auth-wrapper">
         <div class="auth-container">
             <div class="auth-logo">

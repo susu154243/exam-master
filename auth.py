@@ -28,7 +28,7 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('admin_login'))
+            return redirect(url_for('admin.login'))
         user = get_user_by_id(session['user_id'])
         if not user or user['role'] != 'admin':
             abort(403)

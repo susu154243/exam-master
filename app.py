@@ -84,8 +84,9 @@ limiter = Limiter(
 )
 
 # 启动时一次性初始化表和列（替代之前每个请求都执行的 @before_request）
-from lib.db import init_tables
+from lib.db import init_tables, reset_db
 init_tables()
+reset_db()  # 重置连接缓存，确保 Gunicorn fork 后 worker 创建新连接
 
 # 注册管理端 Blueprint
 app.register_blueprint(admin_bp)
@@ -191,6 +192,12 @@ def inject_site_settings():
         result['notif_unread_count'] = get_unread_notification_count(session['user_id'])
     else:
         result['notif_unread_count'] = 0
+    # 预览环境标记（通过 Nginx 请求头或 URI 路径判断）
+    is_preview = request.headers.get('X-KeyIn-Env') in ('preview', '1', 'true')
+    if not is_preview:
+        uri = request.headers.get('X-Original-URI', '')
+        is_preview = uri.startswith('/preview/')
+    result['is_preview'] = is_preview
     return result
 
 

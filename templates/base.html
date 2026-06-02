@@ -10,6 +10,11 @@
     {% block styles %}{% endblock %}
 </head>
 <body>
+    {% if is_preview %}
+    <div class="preview-banner">
+        ⚠️ 灰度预览环境 — 当前分支: refactor — 数据与线上共享
+    </div>
+    {% endif %}
     <nav>
         <div class="nav-left">
             <a href="{{ url_for('index') }}" class="nav-logo">

@@ -9,16 +9,8 @@ import json
 import time
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.db')
-
-
-def get_db():
-    """获取数据库连接"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")  # 写入冲突时等 5 秒
-    return conn
+# 使用 lib/db.py 的线程缓存版 get_db（避免每次请求新建连接）
+from lib.db import get_db, close_db
 
 
 def serialize_row(row):

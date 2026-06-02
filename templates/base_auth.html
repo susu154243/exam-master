@@ -14,6 +14,11 @@
     {% block styles %}{% endblock %}
 </head>
 <body>
+    {% if is_preview %}
+    <div class="preview-banner">
+        ⚠️ 灰度预览环境 — 当前分支: refactor — 数据与线上共享
+    </div>
+    {% endif %}
     <div class="auth-page-wrapper" style="min-height: 100vh; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(135deg, #f0f7ff 0%, #eaf5ff 100%);">
         <!-- Flash消息 -->
         {% with messages = get_flashed_messages(with_categories=true) %}
