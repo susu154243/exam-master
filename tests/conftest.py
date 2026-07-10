@@ -93,7 +93,8 @@ def temp_db(tmp_path):
             desired_retention REAL DEFAULT 0.9,
             card_state TEXT DEFAULT 'learning',
             learning_step INTEGER DEFAULT 2,
-            consecutive_easy INTEGER DEFAULT 0
+            consecutive_easy INTEGER DEFAULT 0,
+            lapses INTEGER DEFAULT 0
         );
 
         CREATE TABLE history (

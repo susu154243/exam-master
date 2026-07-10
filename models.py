@@ -1001,33 +1001,34 @@ FSRS_DECAY = 0.9  # 遗忘衰减系数（保留兼容性）
 FSRS_GAIN_FACTOR = 2.5  # 增长系数（gain = qf × 2.5 / sqrt(log2(S+1))）
 def get_interval(stability, desired_retention=0.9):
     """由稳定性计算下次复习间隔（天）
-    
-    stability 直接代表间隔天数，四舍五入到整数。
-    <2 天保留1位小数。
-    保留 desired_retention 参数兼容旧调用（不再使用）。
+
+    公式：interval = S × ln(DR) / ln(0.9)
+    - DR=0.9 时：interval = S（标准行为）
+    - DR=0.8 时：间隔更长（允许更多遗忘）
+    - DR=0.95 时：间隔更短（更高保留要求）
+
+    stability < 1 时返回 0（进入学习状态，本次重复）。
     """
     if stability < 1:
         return 0  # <1天进入学习状态，本次重复
-    if stability < 2:
-        return round(stability, 1)
-    return round(stability)
+    interval = stability * math.log(desired_retention) / math.log(0.9)
+    interval = max(1, round(interval))
+    return interval
 
 
 def get_retrievability(stability, delta_t):
-    """计算当前保留率 R = e^(-decay × t / S)
-    
-    stability: 记忆稳定性（天），现直接等于间隔
+    """计算当前保留率 R = 0.9^(t / S)
+
+    stability: 记忆稳定性（天）
     delta_t: 距上次复习的天数
     返回值: 0~1 之间的保留率
-    注：stability 现在是间隔值，不再是半衰期。
-    保留此函数用于展示和排序。
+
+    语义：当 delta_t == stability 时，R = 0.9（恰好 90% 保留）
+    这是 FSRS 标准公式的等价形式。
     """
     if stability <= 0 or delta_t < 0:
         return 1.0
-    # stability 现在是间隔，R(delta_t) = e^(-decay × delta_t / stability)
-    # 当 delta_t = stability 时，R = e^(-0.9) ≈ 40%
-    # 这是一个近似展示值
-    return math.exp(-FSRS_DECAY * delta_t / max(stability, 0.1))
+    return 0.9 ** (delta_t / max(stability, 0.01))
 
 
 def update_stability(quality, stability, difficulty, delta_t, desired_retention=0.9):
@@ -1055,8 +1056,8 @@ def update_stability(quality, stability, difficulty, delta_t, desired_retention=
         gain = quality_factor * FSRS_GAIN_FACTOR / decay
         new_stability = stability * (1 + gain)
     else:  # 答错（忘了/模糊）
-        # 答错后稳定性降至 30%（进入重学阶段）
-        new_stability = stability * 0.3
+        # 答错后稳定性降至 10%（快速重学）
+        new_stability = max(0.5, stability * 0.1)
     
     return max(new_stability, 0.1)  # 最低 0.1 天
 
@@ -1068,8 +1069,8 @@ def update_difficulty(quality, difficulty):
     答错 → 难度升高
     边界衰减：接近极值时变化更慢
     """
-    # 基础变化：-0.6 ~ +0.6
-    delta = (2.0 - quality) * 0.3
+    # 基础变化：-0.45 ~ +0.6（quality=2时微降0.15）
+    delta = (1.5 - quality) * 0.3
     
     # 边界衰减
     if delta < 0:  # 降难度
@@ -1134,11 +1135,11 @@ def fsrs_schedule(quality, stability, difficulty, delta_t, desired_retention=0.9
     return new_stability, new_difficulty, interval, base_interval
 
 
-# 学习步骤配置（分钟）
-LEARNING_STEPS = [1, 10]  # 第1步: 1分钟后, 第2步: 10分钟后
+# 学习步骤配置（小时）
+LEARNING_STEPS = [0.5, 4]  # 第1步: 0.5小时后, 第2步: 4小时后
 
 # 重学机制：复习答错后保留的稳定性比例
-RELEARNING_STABILITY_KEEP = 0.3  # 保留30%稳定性，不全部重置
+RELEARNING_STABILITY_KEEP = 0.1  # 保留10%稳定性，快速重学
 
 
 def get_due_questions(user_id, category_id=None, subject_id=None, limit=20):
@@ -1164,14 +1165,15 @@ def get_due_questions(user_id, category_id=None, subject_id=None, limit=20):
     """
     
     if category_id:
-        sql = base_sql + " AND q.category_id = ? ORDER BY rs.next_review ASC LIMIT ?"
-        params = [user_id, now_str, category_id, limit]
+        # 放大 LIMIT 避免截断紧急题目，Python 按保留率重排后截断
+        sql = base_sql + " AND q.category_id = ? LIMIT ?"
+        params = [user_id, now_str, category_id, limit * 3]
     elif subject_id:
-        sql = base_sql + " AND q.subject_id = ? ORDER BY rs.next_review ASC LIMIT ?"
-        params = [user_id, now_str, subject_id, limit]
+        sql = base_sql + " AND q.subject_id = ? LIMIT ?"
+        params = [user_id, now_str, subject_id, limit * 3]
     else:
-        sql = base_sql + " ORDER BY rs.next_review ASC LIMIT ?"
-        params = [user_id, now_str, limit]
+        sql = base_sql + " LIMIT ?"
+        params = [user_id, now_str, limit * 3]
     
     cur.execute(sql, params)
     due = [dict(r) for r in cur.fetchall()]
@@ -1189,9 +1191,11 @@ def get_due_questions(user_id, category_id=None, subject_id=None, limit=20):
                 row['retrievability'] = get_retrievability(stability, delta_t)
             else:
                 row['retrievability'] = 0.0  # 无记录视为易忘
-        
+
         due.sort(key=lambda x: x['retrievability'])
-    
+        # 按保留率排序后截断到 limit
+        due = due[:limit]
+
     return due
 
 
@@ -1311,7 +1315,7 @@ def get_study_limits(user_id, subject_id):
         }
     return {
         'daily_new_limit': 10, 'daily_review_limit': 50, 'desired_retention': 0.9,
-        'max_interval': 30, 'learning_steps': LEARNING_STEPS,
+        'max_interval': 365, 'learning_steps': LEARNING_STEPS,
     }
 
 
@@ -1453,7 +1457,8 @@ def predict_review_result(user_id, question_id, subject_id):
     limits = get_study_limits(user_id, subject_id)
     dr = limits['desired_retention']
     learning_steps = limits['learning_steps']
-    
+    max_interval = limits['max_interval']
+
     schedule = get_review_schedule(user_id, question_id)
     
     for q in range(5):
@@ -1492,12 +1497,12 @@ def predict_review_result(user_id, question_id, subject_id):
                     last_review_str = schedule.get('last_review')
                     if last_review_str:
                         last_review = datetime.strptime(last_review_str, '%Y-%m-%d %H:%M:%S')
-                        delta_t = max(1, (date.today() - last_review.date()).days)
+                        delta_t = max(0.01, (datetime.now() - last_review).total_seconds() / 86400)
                     else:
                         delta_t = 1
                     
                     new_s, new_d, new_i, base_i = fsrs_schedule(q, stability, difficulty, delta_t, dr)
-                    new_i = min(int(base_i), 30)  # 间隔上限 30 天
+                    new_i = min(int(base_i), max_interval)  # 间隔上限使用配置值
                     if new_i == 1:
                         results[q] = '明天复习'
                     else:
@@ -1537,7 +1542,7 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
     # 获取复习记录
     cur.execute("""
         SELECT ease_factor, interval, repetitions, stability, difficulty, last_review,
-               card_state, learning_step, consecutive_easy
+               card_state, learning_step, consecutive_easy, lapses
         FROM review_schedule
         WHERE user_id = ? AND question_id = ?
     """, (user_id, question_id))
@@ -1549,6 +1554,7 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
         card_state = existing.get('card_state') or 'review'
         learning_step = existing.get('learning_step') or 0
         consecutive_easy = existing.get('consecutive_easy') or 0
+        lapses = existing.get('lapses') or 0
 
         if card_state == 'learning':
             # ── 学习阶段（learning_step = 还需答对次数）──
@@ -1580,9 +1586,10 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
                             date.today() + timedelta(days=6), datetime.min.time()
                         )
                 else:
-                    # 仍需学习，回队尾
+                    # 仍需学习，按学习步骤延迟
                     new_interval = 0
-                    next_review = now
+                    step_hours = learning_steps[2 - learning_step] if learning_step > 0 and learning_step <= len(learning_steps) else 0.5
+                    next_review = now + timedelta(hours=step_hours)
             else:
                 # 答错，计数器不变，回队尾
                 new_interval = 0
@@ -1599,18 +1606,19 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
             difficulty = existing.get('difficulty') or 5.0
             reps = existing['repetitions']
 
-            # 强化触发条件：复习超过5次且评分非简单/秒答（quality < 3）
-            if quality < 3 and reps > 5:
+            # 强化触发条件：复习超过5次且答错（quality <= 1）
+            if quality <= 1 and reps > 5:
                 # 直接进入强化状态
                 new_stability = stability * RELEARNING_STABILITY_KEEP
                 _, new_difficulty = init_memory_state(quality)
-                new_interval = 30
+                new_interval = max_interval
                 new_reps = reps + 1
                 new_ease = existing['ease_factor']
                 card_state = 'reinforce'
                 learning_step = 0
+                lapses += 1
                 now = datetime.now()
-                next_review = datetime.combine(date.today() + timedelta(days=30), datetime.min.time())
+                next_review = datetime.combine(date.today() + timedelta(days=max_interval), datetime.min.time())
             elif quality in (0, 1):
                 # 忘了/模糊 → 退回学习
                 new_stability = stability * RELEARNING_STABILITY_KEEP
@@ -1620,6 +1628,7 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
                 new_ease = existing['ease_factor']
                 card_state = 'learning'
                 learning_step = 2 if quality == 0 else 1
+                lapses += 1
                 now = datetime.now()
                 next_review = now  # 回队尾
             else:
@@ -1627,14 +1636,15 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
                 last_review_str = existing.get('last_review')
                 if last_review_str:
                     last_review = datetime.strptime(last_review_str, '%Y-%m-%d %H:%M:%S')
-                    delta_t = max(1, (date.today() - last_review.date()).days)
+                    # 使用 datetime 精度计算 delta_t（天为单位，支持小数）
+                    delta_t = max(0.01, (datetime.now() - last_review).total_seconds() / 86400)
                 else:
                     delta_t = 1
 
                 new_stability, new_difficulty, new_interval, base_interval = fsrs_schedule(
                     quality, stability, difficulty, delta_t, dr
                 )
-                new_interval = min(new_interval, 30)
+                new_interval = min(new_interval, max_interval)
                 new_reps = reps + 1
                 new_ease = existing['ease_factor']
 
@@ -1670,6 +1680,7 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
         now = datetime.now()
         new_reps = 1
         new_ease = 2.5
+        lapses = 0
 
         if quality == 0:  # 忘了 → 学习，需答对2次
             new_stability, new_difficulty = init_memory_state(quality)
@@ -1711,14 +1722,14 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
         # 连续简单/秒答计数器
         consecutive_easy = 1 if quality >= 3 else 0
 
-    # 连续 3 次简单/秒答 → 强制已掌握（任何状态都覆盖）
+    # 连续 3 次简单/秒答 → 加速因子（确保达到掌握标准）
     if consecutive_easy >= 3:
         card_state = 'review'
         learning_step = 0
-        new_stability = 45.0
+        new_stability = max(new_stability, 45.0)
         new_reps = max(new_reps, 3)
-        new_interval = 30
-        next_review = datetime.combine(date.today() + timedelta(days=30), datetime.min.time())
+        new_interval = max_interval
+        next_review = datetime.combine(date.today() + timedelta(days=max_interval), datetime.min.time())
 
     if existing_row:
         cur.execute("""
@@ -1726,24 +1737,24 @@ def update_review_schedule(user_id, question_id, subject_id, quality):
             SET ease_factor = ?, interval = ?, repetitions = ?,
                 next_review = ?, last_review = ?, last_quality = ?,
                 stability = ?, difficulty = ?,
-                card_state = ?, learning_step = ?, consecutive_easy = ?
+                card_state = ?, learning_step = ?, consecutive_easy = ?, lapses = ?
             WHERE user_id = ? AND question_id = ?
         """, (new_ease, new_interval, new_reps,
               next_review.strftime('%Y-%m-%d %H:%M:%S'),
               now.strftime('%Y-%m-%d %H:%M:%S'),
               quality, round(new_stability, 2), round(new_difficulty, 2),
-              card_state, learning_step, consecutive_easy,
+              card_state, learning_step, consecutive_easy, lapses,
               user_id, question_id))
     else:
         cur.execute("""
-            INSERT INTO review_schedule (user_id, question_id, subject_id, ease_factor, interval, repetitions, consecutive_easy, next_review, last_review, last_quality, stability, difficulty, card_state, learning_step)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO review_schedule (user_id, question_id, subject_id, ease_factor, interval, repetitions, consecutive_easy, next_review, last_review, last_quality, stability, difficulty, card_state, learning_step, lapses)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (user_id, question_id, subject_id,
               new_ease, new_interval, new_reps, consecutive_easy,
               next_review.strftime('%Y-%m-%d %H:%M:%S'),
               now.strftime('%Y-%m-%d %H:%M:%S'),
               quality, round(new_stability, 2), round(new_difficulty, 2),
-              card_state, learning_step))
+              card_state, learning_step, lapses))
     
     conn.commit()
     conn.close()
@@ -1995,23 +2006,36 @@ def predict_review_load(user_id, subject_id, days=30):
     
     load = {}
     today = datetime.now().date()
-    
+    end_date = today + timedelta(days=days)
+
     for s in schedules:
         try:
             next_review = datetime.strptime(s['next_review'], '%Y-%m-%d %H:%M:%S').date()
         except (ValueError, TypeError):
             continue
-        
+
         interval = max(1, int(s['interval']) if s['interval'] else 1)
-        
-        # 找到未来 N 天内的所有到期日
-        current = next_review
-        while current <= today + timedelta(days=days):
-            if current >= today:
-                key = current.strftime('%Y-%m-%d')
+
+        # 计算第一个 >= today 的到期日
+        if next_review >= today:
+            first_due = next_review
+        else:
+            # 找到第一个 >= today 的到期日
+            days_until = (today - next_review).days
+            periods = (days_until + interval - 1) // interval  # 向上取整
+            first_due = next_review + timedelta(days=periods * interval)
+
+        # 计算在 days 范围内的到期次数
+        if first_due <= end_date:
+            remaining_days = (end_date - first_due).days
+            count = remaining_days // interval + 1
+
+            # 均匀分布到各天
+            for i in range(count):
+                due_date = first_due + timedelta(days=i * interval)
+                key = due_date.strftime('%Y-%m-%d')
                 load[key] = load.get(key, 0) + 1
-            current += timedelta(days=interval)
-    
+
     return load
 
 
@@ -2156,7 +2180,6 @@ def get_due_today(user_id, category_id):
         WHERE q.category_id = ? AND q.status = 1 AND rs.next_review <= ?
               AND rs.card_state != 'reinforce'
               AND NOT (rs.stability >= 45 AND rs.repetitions >= 3)
-        ORDER BY rs.next_review ASC
     """, (user_id, category_id, now_str))
     due = [dict(r) for r in cur.fetchall()]
     conn.close()
