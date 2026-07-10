@@ -11,6 +11,7 @@
 <div style="background: white; border-radius: var(--border-radius); padding: 1.5rem; box-shadow: var(--box-shadow); margin-bottom: 1.5rem;">
     <h3 style="margin: 0 0 1rem;">生成邀请码</h3>
     <form id="generateForm" method="post" action="{{ url_for('admin.admin_codes_generate') }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
+        {{ csrf_token() }}
         <div>
             <label style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">科目</label>
             <select name="subject_id" class="form-control" required>
@@ -153,12 +154,14 @@
                     </a>
                     {% if code.max_uses != 0 %}
                     <form method="post" action="{{ url_for('admin.admin_codes_disable', code_id=code.id) }}" style="display: inline;">
+        {{ csrf_token() }}
                         <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('确定禁用此邀请码？')" title="禁用">
                             <i class="fas fa-ban"></i>
                         </button>
                     </form>
                     {% endif %}
                     <form method="post" action="{{ url_for('admin.admin_codes_delete', code_id=code.id) }}" style="display: inline;">
+        {{ csrf_token() }}
                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('确定删除此邀请码？此操作不可恢复')" title="删除">
                             <i class="fas fa-trash"></i>
                         </button>

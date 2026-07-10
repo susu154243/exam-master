@@ -187,6 +187,7 @@
             </div>
             
             <form method="post" class="auth-form" id="registerForm">
+        {{ csrf_token() }}
                 <div class="form-group">
                     <label for="username" class="form-label">用户名</label>
                     <input type="text" id="username" name="username" class="form-control" required minlength="3" placeholder="至少3个字符">

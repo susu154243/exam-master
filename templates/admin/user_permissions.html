@@ -10,6 +10,7 @@
 <div class="card mb-3">
     <h3 class="card-title">{{ s.name }}</h3>
     <form method="post" action="{{ url_for('admin.set_permissions', user_id=user.id) }}">
+        {{ csrf_token() }}
         <input type="hidden" name="subject_id" value="{{ s.id }}">
         <div class="d-flex gap-3 flex-wrap">
             <label><input type="checkbox" name="can_practice" value="1" {% if perms|selectattr('subject_id','equalto',s.id)|selectattr('can_practice')|list|length > 0 %}checked{% endif %}> 章节练习</label>

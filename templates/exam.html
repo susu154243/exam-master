@@ -25,6 +25,7 @@
     </h2>
     
     <form id="examForm" method="post" action="{{ url_for('submit_exam', subject_id=subject.id, year=year) if year else url_for('submit_exam', subject_id=subject.id, year=0) }}" class="mb-4">
+        {{ csrf_token() }}
         {% for question in questions %}
         <div class="question-container mb-4">
             <div class="question-header">

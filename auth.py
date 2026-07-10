@@ -29,6 +29,11 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('admin.login'))
+        # 单设备校验：session token 不匹配说明在其他设备重新登录
+        if not verify_session_token(session['user_id'], session.get('session_token')):
+            session.clear()
+            flash('您的账号已在其他设备登录，当前会话已失效', 'warning')
+            return redirect(url_for('admin.login'))
         user = get_user_by_id(session['user_id'])
         if not user or user['role'] != 'admin':
             abort(403)

@@ -240,11 +240,22 @@ def _extract_apkg(apkg_path: str, subject_id: int):
                     # 只保存图片，跳过字体等
                     ext = os.path.splitext(original_name)[1].lower()
                     if ext in ('.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp'):
-                        save_path = os.path.join(static_media_dir, original_name)
+                        # 防止路径穿越：只使用文件名，移除路径组件
+                        safe_filename = os.path.basename(original_name)
+                        if not safe_filename:
+                            continue
+
+                        save_path = os.path.join(static_media_dir, safe_filename)
+                        # 验证最终路径在目标目录内
+                        save_path = os.path.realpath(save_path)
+                        static_media_dir_real = os.path.realpath(static_media_dir)
+                        if not save_path.startswith(static_media_dir_real + os.sep) and save_path != static_media_dir_real:
+                            continue
+
                         if not os.path.exists(save_path):
                             with open(save_path, 'wb') as f:
                                 f.write(decompressed)
-                        result["images"].append(original_name)
+                        result["images"].append(safe_filename)
                 
                 entry_idx += 1
         

@@ -273,28 +273,44 @@ def create_subject(name, code, description='', icon='📚'):
         conn.close()
 
 
+# 允许动态拼接的字段名白名单（用于 UPDATE SET 语句）
+_ALLOWED_SUBJECT_FIELDS = frozenset({'name', 'code', 'description', 'icon', 'status', 'level', 'updated_at'})
+_ALLOWED_QUESTION_FIELDS = frozenset({
+    'stem', 'options', 'answer', 'explanation', 'qtype', 'difficulty',
+    'category_id', 'is_real_exam', 'exam_year', 'source', 'qtype_text', 'status', 'updated_at',
+})
+
+
+def _safe_field_name(field_expr, allowed):
+    """从 "field = ?" 提取字段名，校验是否在白名单中"""
+    name = field_expr.split(' = ')[0].strip()
+    if name not in allowed:
+        raise ValueError(f"非法字段名: {name}")
+    return field_expr
+
+
 def update_subject(subject_id, name=None, code=None, description=None, icon=None, status=None):
     conn = get_db()
     cur = conn.cursor()
     fields = []
     values = []
     if name is not None:
-        fields.append("name = ?")
+        fields.append(_safe_field_name("name = ?", _ALLOWED_SUBJECT_FIELDS))
         values.append(name)
     if code is not None:
-        fields.append("code = ?")
+        fields.append(_safe_field_name("code = ?", _ALLOWED_SUBJECT_FIELDS))
         values.append(code)
     if description is not None:
-        fields.append("description = ?")
+        fields.append(_safe_field_name("description = ?", _ALLOWED_SUBJECT_FIELDS))
         values.append(description)
     if icon is not None:
-        fields.append("icon = ?")
+        fields.append(_safe_field_name("icon = ?", _ALLOWED_SUBJECT_FIELDS))
         values.append(icon)
     if status is not None:
-        fields.append("status = ?")
+        fields.append(_safe_field_name("status = ?", _ALLOWED_SUBJECT_FIELDS))
         values.append(status)
     if fields:
-        fields.append("updated_at = CURRENT_TIMESTAMP")
+        fields.append(_safe_field_name("updated_at = CURRENT_TIMESTAMP", _ALLOWED_SUBJECT_FIELDS))
         values.append(subject_id)
         cur.execute(f"UPDATE subjects SET {', '.join(fields)} WHERE id = ?", values)
         conn.commit()
@@ -520,14 +536,34 @@ def get_questions_by_subject(subject_id, status=1, page=1, per_page=20, search='
 
 
 def create_question(data):
-    """创建题目（自动净化 stem/options/explanation）"""
-    import uuid
+    """创建题目（自动净化 stem/options/explanation，重复题目自动跳过）
+    返回: 新题目 id（成功）/ None（重复跳过）/ 抛异常（其他错误）
+    """
+    import uuid, re
     conn = get_db()
     cur = conn.cursor()
+
+    stem = data.get('stem') or ''
+    category_id = data.get('category_id')
+
+    # 查重：同一分类下，题干前 100 字符相同视为重复
+    if stem and category_id:
+        clean_stem = re.sub(r'<[^>]+>', '', stem).strip()
+        clean_stem = re.sub(r'\s+', ' ', clean_stem)
+        stem_prefix = clean_stem[:100]
+        if stem_prefix:
+            cur.execute("""
+                SELECT id FROM questions
+                WHERE category_id = ? AND status = 1 AND stem LIKE ?
+            """, (category_id, f'{stem_prefix}%'))
+            if cur.fetchone():
+                conn.close()
+                return None  # 重复题目，跳过
+
     qid = data.get('id') or str(uuid.uuid4())[:8]
-    
+
     # 净化 HTML 字段
-    stem = sanitize_html(data.get('stem') or '')
+    stem = sanitize_html(stem)
     options_raw = data.get('options', '{}')
     try:
         options_dict = json.loads(options_raw) if options_raw else {}
@@ -536,7 +572,7 @@ def create_question(data):
     except (json.JSONDecodeError, TypeError):
         options = options_raw
     explanation = sanitize_html(data.get('explanation') or '')
-    
+
     cur.execute("""
         INSERT INTO questions (
             id, stem, options, answer, explanation, qtype, difficulty,
@@ -564,7 +600,7 @@ def create_question(data):
 
 
 def update_question(qid, data):
-    """更新题目（自动净化 stem/options/explanation）"""
+    """更新题目（自动净化 stem/options/explanation，字段名白名单校验）"""
     conn = get_db()
     cur = conn.cursor()
     fields = []
@@ -572,7 +608,7 @@ def update_question(qid, data):
     for key in ['stem', 'options', 'answer', 'explanation', 'qtype', 'difficulty',
                 'category_id', 'is_real_exam', 'exam_year', 'source', 'qtype_text', 'status']:
         if key in data:
-            fields.append(f"{key} = ?")
+            fields.append(_safe_field_name(f"{key} = ?", _ALLOWED_QUESTION_FIELDS))
             # 净化 HTML 字段
             if key == 'stem':
                 values.append(sanitize_html(data[key]))
@@ -591,7 +627,7 @@ def update_question(qid, data):
     if 'qtype' in data:
         qtype_text = {'single': '单选题', 'multiple': '多选题', 'judge': '判断题'}.get(data['qtype'], '单选题')
         if 'qtype_text' not in data or data['qtype_text'] != qtype_text:
-            fields.append('qtype_text = ?')
+            fields.append(_safe_field_name('qtype_text = ?', _ALLOWED_QUESTION_FIELDS))
             values.append(qtype_text)
     if fields:
         values.append(qid)
@@ -726,8 +762,11 @@ def batch_move_questions(from_category_id, to_category_id):
     return count, 'OK'
 
 
+_ALLOWED_BATCH_QUESTION_FIELDS = frozenset({'difficulty', 'is_real_exam', 'source', 'status'})
+
+
 def batch_update_questions(question_ids, data):
-    """批量更新题目属性，返回影响数量"""
+    """批量更新题目属性（字段名白名单校验），返回影响数量"""
     if not question_ids:
         return 0
     conn = get_db()
@@ -736,7 +775,7 @@ def batch_update_questions(question_ids, data):
     values = []
     for key in ['difficulty', 'is_real_exam', 'source', 'status']:
         if key in data:
-            fields.append(f"{key} = ?")
+            fields.append(_safe_field_name(f"{key} = ?", _ALLOWED_BATCH_QUESTION_FIELDS))
             values.append(data[key])
     if fields:
         placeholders = ','.join(['?'] * len(question_ids))
@@ -1854,14 +1893,14 @@ def get_all_licenses():
 
 def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20):
     """筛选/分页查询用户授权
-    
+
     Args:
         user: 用户名或ID（模糊匹配）
         subject_id: 科目ID筛选
         status: 状态筛选 ('valid'/'expiring_soon'/'expired'，None=全部)
         page: 页码
         per_page: 每页条数
-    
+
     Returns:
         (licenses, total)
     """
@@ -1869,10 +1908,10 @@ def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
+
     where = []
     params = []
-    
+
     if user:
         try:
             uid = int(user)
@@ -1881,11 +1920,19 @@ def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20
         except ValueError:
             where.append('u.username LIKE ?')
             params.append(f'%{user}%')
-    
+
     if subject_id:
         where.append('ul.subject_id = ?')
         params.append(subject_id)
-    
+
+    # 将 status 过滤移入 SQL WHERE 子句
+    if status == 'valid':
+        where.append("julianday(ul.expires_at) - julianday('now') > 30")
+    elif status == 'expiring_soon':
+        where.append("julianday(ul.expires_at) - julianday('now') BETWEEN 0 AND 30")
+    elif status == 'expired':
+        where.append("julianday(ul.expires_at) - julianday('now') <= 0")
+
     base_sql = """
         SELECT ul.id, u.id as user_id, u.username, ul.subject_id, s.name as subject_name,
                ul.expires_at, ul.created_at
@@ -1893,18 +1940,18 @@ def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20
         JOIN users u ON u.id = ul.user_id
         JOIN subjects s ON s.id = ul.subject_id
     """
-    
+
     if where:
         base_sql += ' WHERE ' + ' AND '.join(where)
-    
+
     # 获取总数
     cur.execute(f"SELECT COUNT(*) FROM ({base_sql})", params)
     total = cur.fetchone()[0]
-    
+
     # 分页查询
     offset = (page - 1) * per_page
     cur.execute(base_sql + ' ORDER BY ul.expires_at LIMIT ? OFFSET ?', params + [per_page, offset])
-    
+
     licenses = []
     for row in cur.fetchall():
         expires_at = datetime.strptime(row['expires_at'], '%Y-%m-%d %H:%M:%S')
@@ -1920,13 +1967,6 @@ def search_licenses(user=None, subject_id=None, status=None, page=1, per_page=20
             'days_left': days_left,
             'is_expired': days_left <= 0
         }
-        # 状态筛选
-        if status == 'valid' and (lic['is_expired'] or lic['days_left'] <= 30):
-            continue
-        if status == 'expiring_soon' and not (0 < lic['days_left'] <= 30):
-            continue
-        if status == 'expired' and not lic['is_expired']:
-            continue
         licenses.append(lic)
     
     conn.close()
@@ -2759,7 +2799,10 @@ def get_retention_curve(user_id, subject_id, source=None):
     now = datetime.now()
 
     now_str = now.strftime('%Y-%m-%d %H:%M:%S')
-    h_src = f"AND h.source = '{source}'" if source else ""
+    h_src = "AND h.source = ?" if source else ""
+    params = [now_str, user_id, subject_id]
+    if source:
+        params.append(source)
     cur.execute(f"""
         SELECT
             CAST(julianday(?) - julianday(rs.last_review) AS INTEGER) as days_since,
@@ -2772,7 +2815,7 @@ def get_retention_curve(user_id, subject_id, source=None):
         GROUP BY days_since
         HAVING total >= 1
         ORDER BY days_since
-    """, (now_str, user_id, subject_id))
+    """, params)
 
     result = [{'days': r[0], 'total': r[1], 'retained': r[2]} for r in cur.fetchall()]
     conn.close()
@@ -3154,12 +3197,28 @@ def get_staging_by_subject(subject_id, page=1, page_size=20, search=""):
 
 
 def create_staging_record(data):
-    """写入 staging 单条记录"""
+    """写入 staging 单条记录（自动查重，重复则返回 None）"""
     conn = get_db()
     cur = conn.cursor()
+
+    # 查重：同一分类下，题干前 100 字符相同视为重复
+    import re
+    clean_stem = re.sub(r'<[^>]+>', '', data.get('stem') or '').strip()
+    clean_stem = re.sub(r'\s+', ' ', clean_stem)
+    stem_prefix = clean_stem[:100]
+
+    if stem_prefix:
+        cur.execute("""
+            SELECT id FROM questions
+            WHERE category_id = ? AND status = 1 AND stem LIKE ?
+        """, (data.get('category_id'), f'{stem_prefix}%'))
+        if cur.fetchone():
+            conn.close()
+            return None  # 重复题目，跳过
+
     cur.execute("""
-        INSERT INTO import_staging 
-        (question_id, subject_id, category_id, category_name, stem, 
+        INSERT INTO import_staging
+        (question_id, subject_id, category_id, category_name, stem,
          option_a, option_b, option_c, option_d, option_e, option_f,
          correct_answer, explanation)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -3514,6 +3573,31 @@ def create_password_reset_token(user_id, hours=1):
     conn.commit()
     conn.close()
     return token
+
+
+def verify_reset_token(token):
+    """验证密码重置 token 是否有效（不消费），返回 user_id 或 None"""
+    from datetime import datetime
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token = ?",
+        (token,)
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    user_id, expires_str = row
+    expires = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+    conn.close()
+
+    if datetime.now() > expires:
+        return None
+
+    return user_id
 
 
 def verify_and_consume_reset_token(token):

@@ -9,6 +9,7 @@
 
 <div style="background: white; border-radius: var(--border-radius); padding: 1.5rem; box-shadow: var(--box-shadow);">
     <form method="post" action="{{ url_for('admin.admin_settings_save') }}">
+        {{ csrf_token() }}
         
         <!-- 首页使用指南 -->
         <div style="margin-bottom: 2rem;">

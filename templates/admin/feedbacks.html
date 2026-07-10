@@ -60,13 +60,16 @@
                 <td style="padding: 0.75rem;">
                     {% if f.status == 'pending' %}
                     <form method="post" action="{{ url_for('admin.admin_resolve_feedback', fid=f.id) }}" style="display:inline;">
+        {{ csrf_token() }}
                         <button class="btn btn-sm btn-success" onclick="return confirm('标记为已处理？')">✓</button>
                     </form>
                     <form method="post" action="{{ url_for('admin.admin_dismiss_feedback', fid=f.id) }}" style="display:inline;">
+        {{ csrf_token() }}
                         <button class="btn btn-sm btn-warning" onclick="return confirm('忽略此反馈？')">✗</button>
                     </form>
                     {% endif %}
                     <form method="post" action="{{ url_for('admin.admin_delete_feedback', fid=f.id) }}" style="display:inline;">
+        {{ csrf_token() }}
                         <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除？')">🗑</button>
                     </form>
                 </td>

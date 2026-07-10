@@ -42,6 +42,7 @@
 
     <div class="memorize-footer">
         <form action="{{ url_for('exit_reinforce', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post" style="display:inline;">
+        {{ csrf_token() }}
             <button type="submit" class="btn btn-primary btn-lg">
                 <i class="fas fa-check"></i> 我已记住，退出强化
             </button>

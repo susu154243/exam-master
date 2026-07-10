@@ -43,6 +43,7 @@
             <!-- 学习卡片模式：题干 + 作答区域 + 查看答案 -->
             <div class="q-stem-full">{{ question.stem | safe }}</div>
             <form id="studyCardForm" action="{{ url_for('chapter_practice_answer', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post">
+        {{ csrf_token() }}
                 <input type="hidden" name="answer" value="__study_card__">
                 <div class="study-answer-area">
                     <label><i class="fas fa-pen"></i> 你的作答</label>
@@ -62,6 +63,7 @@
             <!-- 常规题目：题干 + 选项 -->
             <div class="q-stem">{{ question.stem | safe }}</div>
             <form id="answerForm" action="{{ url_for('chapter_practice_answer', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post">
+        {{ csrf_token() }}
                 {% if question.qtype_text == '判断题' %}
                 <div class="q-options judge-options">
                     <div class="q-option judge-btn">
@@ -171,6 +173,7 @@
             <div class="rating-section">
                 <p class="rating-title">你觉得这道题：</p>
                 <form action="{{ url_for('chapter_practice_rate', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post" class="rating-form">
+        {{ csrf_token() }}
                     <div class="rating-buttons">
                         <button type="submit" name="quality" value="0" class="rating-btn rating-0">😭 忘了 <span class="rating-predict">({{ review_predictions.get(0, '') }})</span></button>
                         <button type="submit" name="quality" value="1" class="rating-btn rating-1">😕 模糊 <span class="rating-predict">({{ review_predictions.get(1, '') }})</span></button>
@@ -184,6 +187,7 @@
             <!-- P0-1: 下一题通过 /next 路由（队列调度） -->
             <div class="mt-3 text-center d-flex gap-2 justify-content-center flex-wrap">
                 <form action="{{ url_for('chapter_practice_skip', subject_id=subject.id, category_id=category.id, qid=question.id) }}" method="post">
+        {{ csrf_token() }}
                     <button type="submit" class="btn btn-outline-secondary">
                         <i class="fas fa-forward"></i> 跳过评分
                     </button>

@@ -294,10 +294,12 @@
                         <td>
                             <div class="d-flex gap-1">
                                 <form action="{{ url_for('reset_question', subject_id=subject.id, category_id=category.id, qid=s.id) }}" method="post" style="display:inline;">
+        {{ csrf_token() }}
                                     <button type="submit" class="btn btn-sm btn-outline-danger reset-btn" onclick="return confirm('确定重置题目 {{ s.id }} 为新题？');" title="重置为新题"><i class="fas fa-redo"></i></button>
                                 </form>
                                 {% if s.filter_state != 'unlearned' %}
                                 <form action="{{ url_for('skip_question_interval', subject_id=subject.id, category_id=category.id, qid=s.id) }}" method="post" style="display:inline;">
+        {{ csrf_token() }}
                                     <button type="submit" class="btn btn-sm btn-outline-warning" title="跳过间隔，直接复习"><i class="fas fa-forward"></i> 直接复习</button>
                                 </form>
                                 {% endif %}
@@ -358,10 +360,12 @@
                 <div class="review-card-actions">
                     <div class="d-flex gap-1">
                         <form action="{{ url_for('reset_question', subject_id=subject.id, category_id=category.id, qid=s.id) }}" method="post" style="display:inline;">
+        {{ csrf_token() }}
                             <button type="submit" class="btn btn-sm btn-outline-danger reset-btn" onclick="return confirm('确定重置题目 {{ s.id }} 为新题？');" title="重置为新题"><i class="fas fa-redo"></i> 重置</button>
                         </form>
                         {% if s.filter_state != 'unlearned' %}
                         <form action="{{ url_for('skip_question_interval', subject_id=subject.id, category_id=category.id, qid=s.id) }}" method="post" style="display:inline;">
+        {{ csrf_token() }}
                             <button type="submit" class="btn btn-sm btn-outline-warning" title="跳过间隔，直接复习"><i class="fas fa-forward"></i> 直接复习</button>
                         </form>
                         {% endif %}

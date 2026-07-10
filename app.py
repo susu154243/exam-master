@@ -17,6 +17,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from urllib.parse import urlparse
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFProtect
 
 from models import (
     authenticate_user, get_user_by_id, get_user_subjects,
@@ -48,6 +49,9 @@ from models import (
     # 邮箱验证
     # 邀请码注册
     validate_invitation_code, use_invitation_code, set_user_security, create_user,
+    # 密码重置
+    create_password_reset_token, verify_reset_token, verify_and_consume_reset_token, reset_user_password,
+    check_security_answer,
     # 密码找回
     get_user_by_username, create_password_reset_token, verify_and_consume_reset_token,
     check_security_answer, reset_user_password, get_security_question_text,
@@ -82,6 +86,9 @@ limiter = Limiter(
     key_func=_get_real_ip,
     storage_uri="memory://",
 )
+
+# CSRF 保护
+csrf = CSRFProtect(app)
 
 # 启动时一次性初始化表和列（替代之前每个请求都执行的 @before_request）
 from lib.db import init_tables, reset_db
@@ -354,32 +361,40 @@ def reset_password_page():
     token = request.args.get('token', '')
     if request.method == 'POST':
         token = request.form.get('token', '')
-    
+
     if not token:
         flash('重置链接无效', 'error')
         return redirect(url_for('forgot_password'))
-    
+
+    if request.method == 'GET':
+        # GET 只验证 token 有效性，不消费（不删除）
+        user_id = verify_reset_token(token)
+        if not user_id:
+            flash('重置链接已过期或无效，请重新申请', 'error')
+            return redirect(url_for('forgot_password'))
+        return render_template('reset_password.html', token=token)
+
+    # POST：验证并消费 token
     user_id = verify_and_consume_reset_token(token)
     if not user_id:
         flash('重置链接已过期或无效，请重新申请', 'error')
         return redirect(url_for('forgot_password'))
-    
-    if request.method == 'POST':
-        new_password = request.form.get('new_password', '')
-        confirm_password = request.form.get('confirm_password', '')
-        
-        if not new_password or not confirm_password:
-            flash('请输入新密码', 'error')
-        elif new_password != confirm_password:
-            flash('两次输入的密码不一致', 'error')
-        elif len(new_password) < 8:
-            flash('密码至少需要8个字符', 'error')
-        else:
-            reset_user_password(user_id, new_password)
-            flash('密码重置成功！请登录', 'success')
-            return redirect(url_for('login'))
-    
-    return render_template('reset_password.html')
+
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+
+    if not new_password or not confirm_password:
+        flash('请输入新密码', 'error')
+    elif new_password != confirm_password:
+        flash('两次输入的密码不一致', 'error')
+    elif len(new_password) < 8:
+        flash('密码至少需要8个字符', 'error')
+    else:
+        reset_user_password(user_id, new_password)
+        flash('密码重置成功！请登录', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', token=token)
 
 
 @app.route('/robots.txt')
@@ -816,8 +831,31 @@ def chapter_exam_submit(subject_id, category_id):
     total = len(questions)
     details = []
     user_id = session['user_id']
+    subjective_count = 0
     for q in questions:
         user_answer = request.form.get(f'answer_{q["id"]}', '')
+        # 主观题（论文题/无答案案例分析题）：不作自动判分
+        is_subjective = (
+            q.get('qtype_text') == '论文题'
+            or (q.get('qtype_text') == '案例分析题'
+                and (not q['answer'] or q['answer'].strip() == ''))
+        )
+        if is_subjective:
+            subjective_count += 1
+            has_answer = bool(user_answer and user_answer.strip())
+            save_answer(user_id, q['id'], user_answer, 1 if has_answer else 0, subject_id, source='exam')
+            details.append({
+                'id': q['id'],
+                'stem': q['stem'],
+                'options': q['options'],
+                'correct_answer': q['answer'],
+                'user_answer': user_answer,
+                'is_correct': None,  # 主观题不判对错
+                'is_subjective': True,
+                'explanation': q.get('explanation', ''),
+            })
+            continue
+
         if q['qtype_text'] == 'multiple':
             is_correct = set(user_answer) == set(q['answer'])
         else:
@@ -833,10 +871,14 @@ def chapter_exam_submit(subject_id, category_id):
             'correct_answer': q['answer'],
             'user_answer': user_answer,
             'is_correct': is_correct,
+            'is_subjective': False,
             'explanation': q.get('explanation', ''),
         })
 
-    score = round((correct_count / total * 100), 2) if total > 0 else 0
+    # 分数计算：排除主观题
+    objective_total = total - subjective_count
+    objective_correct = correct_count
+    score = round((objective_correct / objective_total * 100), 2) if objective_total > 0 else 0
     # 保存考试记录（仅成绩，不进入复习队列）
     from models import save_exam_record
     save_exam_record(user_id, subject_id, category_id, total, correct_count, score)
@@ -990,10 +1032,16 @@ def chapter_practice_answer(subject_id, category_id, qid):
     options_dict = parse_options(question['options'])
     is_study_card = not options_dict
 
-    if is_study_card:
-        is_correct = True
+    # 主观题（论文题/案例分析题无答案）：不按自动判分
+    is_subjective = (
+        question.get('qtype_text') == '论文题'
+        or (question.get('qtype_text') == '案例分析题' and (not correct_answer or correct_answer.strip() == ''))
+    )
+
+    if is_study_card or is_subjective:
+        is_correct = True  # 主观题/学习卡片：自动标记为已作答（不判对错）
         is_partial = False
-        result_msg = ''  # 学习卡片不需要"回答正确/错误"提示
+        result_msg = '已作答（主观题，暂不支持自动判分）' if is_subjective else ''
         user_answer = request.form.get('user_text_answer', '').strip()[:2000]
         # 保存用户作答到 history
         if user_answer:
@@ -1557,6 +1605,7 @@ def exam_years(subject_id):
 
 @app.route('/subjects/<int:subject_id>/exams/<int:year>')
 @login_required
+@_check_subject_license
 def exam_by_year(subject_id, year):
     """按年份答题"""
     rows = get_questions_by_year(subject_id, year)
@@ -1577,6 +1626,7 @@ def exam_by_year(subject_id, year):
 
 @app.route('/subjects/<int:subject_id>/exams/<int:year>/submit', methods=['POST'])
 @login_required
+@_check_subject_license
 def submit_exam(subject_id, year):
     """提交考试"""
     if year > 0:
@@ -1626,15 +1676,18 @@ def mock_exam(subject_id):
 
 @app.route('/subjects/<int:subject_id>/mock/start', methods=['POST'])
 @login_required
+@_check_subject_license
 def start_mock_exam(subject_id):
     """开始模拟考试"""
     question_count = request.form.get('question_count', 20, type=int)
+    # 限制题目数量上限
+    question_count = min(question_count, 100)
     questions = get_random_questions(subject_id, count=question_count)
-    
+
     if not questions:
         flash('暂无可考题目', 'info')
         return redirect(url_for('mock_exam', subject_id=subject_id))
-    
+
     subject = get_subject_by_id(subject_id)
     return render_template('exam.html', questions=questions, subject=subject)
 

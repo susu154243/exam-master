@@ -24,7 +24,11 @@ def get_db():
         try:
             conn.execute("SELECT 1")
         except sqlite3.ProgrammingError:
-            # 连接已失效，创建新连接
+            # 连接已失效，先关闭旧连接再创建新连接
+            try:
+                conn.close()
+            except Exception:
+                pass
             conn = _new_connection()
             _local.conn = conn
     return conn

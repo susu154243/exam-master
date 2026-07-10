@@ -65,6 +65,7 @@
                         <span>上次复习：{{ q.last_review or '未记录' }}</span>
                     </div>
                     <form action="{{ url_for('unmaster_question', subject_id=subject.id, category_id=category.id, qid=q.id) }}" method="POST" class="d-inline" onsubmit="return confirm('确认取消掌握？该题目将回到练习池。')">
+        {{ csrf_token() }}
                         <button type="submit" class="btn btn-outline-danger btn-sm">
                             <i class="fas fa-undo"></i> 取消掌握
                         </button>
