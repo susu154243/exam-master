@@ -9,12 +9,12 @@
         <div class="header-actions">
             <form action="{{ url_for('admin.import_staging_confirm_all', subject_id=subject_id) }}" method="POST" 
                   onsubmit="return confirm('确定将这 {{ total }} 条题目全部导入正式题库吗？导入后无法撤销。')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-success">✅ 全部导入 ({{ total }} 条)</button>
             </form>
             <form action="{{ url_for('admin.import_staging_clear', subject_id=subject_id) }}" method="POST"
                   onsubmit="return confirm('确定清空这 {{ total }} 条题目吗？')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-danger">🗑️ 清空全部</button>
             </form>
         </div>
@@ -67,7 +67,7 @@
                         <a href="{{ url_for('admin.import_staging_edit', staging_id=item.id) }}" class="btn btn-sm btn-primary">✏️ 编辑</a>
                         <form action="{{ url_for('admin.import_staging_delete', staging_id=item.id) }}" method="POST" style="display:inline"
                               onsubmit="return confirm('确定删除这条题目吗？')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-danger">🗑️</button>
                         </form>
                     </div>

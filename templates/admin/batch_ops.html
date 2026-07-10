@@ -20,7 +20,7 @@
     <h3><i class="fas fa-trash-alt" style="color: #ef4444;"></i> 按分类批量删除</h3>
     <p class="text-muted mb-3">软删除指定分类下所有题目（status=0），可恢复</p>
     <form method="post" onsubmit="return confirm('确认删除该分类下所有题目？')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="delete_by_category">
         <div class="d-flex gap-2 align-items-end">
             <div class="form-group">
@@ -42,7 +42,7 @@
     <h3><i class="fas fa-exchange-alt" style="color: #3b82f6;"></i> 批量迁移分类</h3>
     <p class="text-muted mb-3">将源分类下所有题目迁移到目标分类</p>
     <form method="post" onsubmit="return confirm('确认迁移？')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="move_questions">
         <div class="d-flex gap-2 align-items-end">
             <div class="form-group">
@@ -73,7 +73,7 @@
     <h3><i class="fas fa-pen-to-square" style="color: #10b981;"></i> 批量修改题目属性</h3>
     <p class="text-muted mb-3">修改指定分类下所有题目的属性（仅修改填写的字段）</p>
     <form method="post">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="batch_update">
         <div class="form-group">
             <label class="form-label">选择分类</label>

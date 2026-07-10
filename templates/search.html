@@ -15,7 +15,7 @@
     </div>
     
     <form method="post" class="mb-4">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="query" class="form-label">关键词：</label>
             <input type="text" id="query" name="query" class="form-control" value="{{ query }}" required>

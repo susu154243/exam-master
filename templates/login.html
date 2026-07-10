@@ -28,7 +28,7 @@
             {% endwith %}
             
             <form method="post" class="auth-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label for="username" class="form-label">用户名</label>
                     <input type="text" id="username" name="username" class="form-control" required placeholder="请输入用户名">

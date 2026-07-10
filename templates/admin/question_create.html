@@ -4,7 +4,7 @@
 <div class="admin-header"><h1><i class="fas fa-plus"></i> 新增题目</h1></div>
 <div class="card" style="max-width: 800px;">
     <form method="post">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label class="form-label">题干（支持HTML/图片Base64）</label>
             <textarea name="stem" class="form-control" rows="4" required></textarea>

@@ -29,13 +29,13 @@
                         <a href="{{ url_for('admin.manage_categories', subject_id=s.id) }}" class="btn btn-sm btn-info"><i class="fas fa-sitemap"></i> 分类</a>
                         <a href="{{ url_for('admin.questions', subject_id=s.id) }}" class="btn btn-sm btn-warning"><i class="fas fa-file-alt"></i> 题目</a>
                         <form method="post" action="{{ url_for('admin.toggle_subject', subject_id=s.id) }}" class="d-inline">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm {% if s.status == 1 %}btn-warning{% else %}btn-success{% endif %}">
                                 {{ '禁用' if s.status == 1 else '启用' }}
                             </button>
                         </form>
                         <form method="post" action="{{ url_for('admin.delete_subject_page', subject_id=s.id) }}" class="d-inline" onsubmit="return confirm('确认删除科目 {{ s.name }}？此操作不可撤销。')">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>
                         </form>
                     </td>

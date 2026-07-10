@@ -183,14 +183,14 @@
                 <div class="question-actions d-flex align-items-center">
                     {% if question.is_favorite %}
                     <form method="post" action="{{ url_for('unfavorite_question', qid=question.id) }}" class="d-inline me-2">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-outline-warning" title="取消收藏">
                             <i class="fas fa-star"></i>
                         </button>
                     </form>
                     {% else %}
                     <form method="post" action="{{ url_for('favorite_question', qid=question.id) }}" class="d-inline me-2">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-outline-secondary" title="收藏">
                             <i class="far fa-star"></i>
                         </button>
@@ -350,14 +350,14 @@
                 <div class="mobile-card-actions">
                     {% if question.is_favorite %}
                     <form method="post" action="{{ url_for('unfavorite_question', qid=question.id) }}" class="mobile-action-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="mobile-secondary-btn favorited" onclick="event.stopPropagation()">
                             <i class="fas fa-star"></i> 已收藏
                         </button>
                     </form>
                     {% else %}
                     <form method="post" action="{{ url_for('favorite_question', qid=question.id) }}" class="mobile-action-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="mobile-secondary-btn" onclick="event.stopPropagation()">
                             <i class="far fa-star"></i> 收藏
                         </button>

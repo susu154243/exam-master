@@ -5,7 +5,7 @@
     <h1>✏️ 编辑题目</h1>
     
     <form method="POST" class="edit-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="subject_id" value="{{ record.subject_id }}">
         
         <div class="form-grid">

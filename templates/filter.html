@@ -15,7 +15,7 @@
     </div>
     
     <form method="post" class="mb-4">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="category" class="form-label">分类：</label>
             <select name="category" id="category" class="form-control">

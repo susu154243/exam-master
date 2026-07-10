@@ -35,7 +35,7 @@
                     </td>
                     <td>
                         <form method="post" action="{{ url_for('admin.delete_import_log_page', log_id=log.id) }}" class="d-inline">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认删除？')"><i class="fas fa-trash"></i></button>
                         </form>
                     </td>

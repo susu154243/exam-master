@@ -51,7 +51,7 @@
         
         <div class="question-actions-top">
             <form method="post" action="{{ url_for('favorite_question', subject_id=subject_id, qid=question.id) }}">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm {% if is_favorite %}btn-warning{% else %}btn-outline-secondary{% endif %}">
                     <i class="fas fa-star"></i> {{ '已收藏' if is_favorite else '收藏' }}
                 </button>
@@ -65,7 +65,7 @@
     <!-- 选项 -->
     {% if not result_msg %}
     <form method="post" action="{{ url_for('submit_answer', subject_id=subject_id, qid=question.id) }}{% if category_id %}?category_id={{ category_id }}{% endif %}" class="question-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <ul class="options-list">
             {% for opt_key, opt_val in question.options.items() %}
                 <li class="option-item">
@@ -109,7 +109,7 @@
         <div class="rating-section">
             <h4 class="rating-title">你觉得这道题：</h4>
             <form method="post" action="{{ url_for('rate_question', subject_id=subject_id, qid=question.id) }}{% if category_id %}?category_id={{ category_id }}{% endif %}" class="rating-form">
-        {{ csrf_token() }}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="category_id" value="{{ category_id or '' }}">
                 <div class="rating-buttons">
                     <button type="submit" name="quality" value="0" class="rating-btn rating-0" title="完全忘记">😭 忘了</button>
