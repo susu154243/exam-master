@@ -20,7 +20,9 @@
 | 模板 | Jinja2 + Chart.js |
 | 部署 | Gunicorn + systemd + Nginx |
 | 限流 | Flask-Limiter（内存存储） |
+| 安全 | Flask-WTF（CSRF 保护） |
 | 算法 | FSRS 间隔重复（零依赖，纯公式实现） |
+| 测试 | pytest + pytest-flask + pytest-cov |
 
 ---
 
@@ -69,6 +71,12 @@ make do-rollback      # 恢复指定备份
 sudo systemctl start/stop/restart keyin
 sudo journalctl -u keyin -f
 
+# 测试
+pytest                    # 运行所有测试
+pytest -v                 # 详细输出
+pytest tests/test_xxx.py  # 运行单个测试文件
+pytest --cov=. --cov-report=html  # 生成覆盖率报告
+
 # 数据库备份
 cp database.db database.db.bak.$(date +%Y%m%d_%H%M%S)
 ```
@@ -84,8 +92,11 @@ cp database.db database.db.bak.$(date +%Y%m%d_%H%M%S)
 5. **HTML 净化**：所有用户文本经 `sanitize_html()` 过滤危险标签
 6. **字段白名单**：动态 UPDATE 使用 `_ALLOWED_*_FIELDS` 防 SQL 注入
 7. **参数化查询**：全部使用 `?` 占位符
-8. **单设备登录**：session_token 验证，新登录踢掉旧会话
-9. **分支策略**：`main`（生产）/ `refactor`（开发）
+8. **单设备登录**：session_token 验证，新登录踢掉旧会话（login_required 和 admin_required 均校验）
+9. **CSRF 保护**：所有 POST 表单必须包含 `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`
+10. **权限装饰器**：使用 `@_check_subject_license` 检查科目授权有效性
+11. **分支策略**：`main`（生产）/ `refactor`（开发）
+12. **测试先行**：新功能/修复必须先写测试，确认失败后再实现
 
 ---
 
@@ -219,20 +230,29 @@ RELEARNING_STABILITY_KEEP = 0.3  # 答错保留 30% 稳定性
 
 ---
 
-## 已知问题（代码审查 2026-05-05）
+## 已知问题
 
-### 🔴 P0（需立即修复）
+### ✅ 已修复（2026-07-10）
+
+1. **SQL 注入** — `get_retention_curve()` 使用参数化查询
+2. **密码重置 token 提前消费** — GET 请求只验证不消费，POST 时才消费
+3. **apkg 路径穿越** — 使用 `os.path.basename()` + `realpath()` 验证
+4. **历年真题权限校验** — 添加 `@_check_subject_license` 装饰器
+5. **admin_required session 校验** — 添加 `verify_session_token()` 调用
+6. **search_licenses 分页过滤** — 将 status 过滤移入 SQL WHERE 子句
+7. **模拟考试权限和数量限制** — 添加装饰器 + `min(count, 100)`
+8. **CSRF 保护** — 引入 flask-wtf，41 个模板添加 csrf_token
+9. **数据库连接泄漏** — 重建连接前先 `conn.close()`
+10. **pass-the-hash** — 验证确认安全（哈希值作为密码会被再次哈希）
+
+### 🟡 待处理
 
 1. **安全问答明文存储** — `security_answer` 应使用 `hash_password()` 哈希
 2. **模板 `|safe` XSS 风险** — 应使用 `bleach` 库净化或导入时净化
-3. **缺少 CSRF 保护** — 所有 POST 表单无 CSRF token，需引入 flask-wtf
-4. **路由名称不匹配** — `admin.admin_users` 应为 `admin.users`
-
-### 🟡 P1（尽快修复）
-
-5. `update_review_schedule()` 过长（200+ 行），需拆分
-6. `_extract_apkg()` 职责过多，需拆分
-7. Flask/Werkzeug 版本需升级（Werkzeug 有 CVE-2023-46136）
+3. **路由名称不匹配** — `admin.admin_users` 应为 `admin.users`
+4. `update_review_schedule()` 过长（200+ 行），需拆分
+5. `_extract_apkg()` 职责过多，需拆分
+6. Flask/Werkzeug 版本需升级（Werkzeug 有 CVE-2023-46136）
 
 ---
 
