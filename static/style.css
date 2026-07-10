@@ -108,7 +108,7 @@ nav {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
-  justify-content: center; /* 电脑模式下剧中 */
+  justify-content: center; /* 电脑模式下居中 */
   width: 100%;
 }
 

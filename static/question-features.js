@@ -48,7 +48,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await resp.json();
             if (data.success) {
                 const preview = document.getElementById(previewId);
-                preview.innerHTML = `<img src="${data.url}" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;">`;
+                const safeUrl = sanitizeUrl(data.url);
+                preview.innerHTML = `<img src="${safeUrl}" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;">`;
                 return data.url;
             } else {
                 alert(data.error || '上传失败');
@@ -119,8 +120,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.note) {
                     document.getElementById('noteContent').value = data.note.content;
                     if (data.note.image_path) {
+                        const safeUrl = sanitizeUrl(data.note.image_path);
                         document.getElementById('notePreview').innerHTML =
-                            `<img src="${data.note.image_path}" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;">`;
+                            `<img src="${safeUrl}" style="max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;">`;
                     }
                 } else {
                     document.getElementById('noteContent').value = '';
@@ -201,7 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span class="cw-time">${c.created_at || ''}</span>
                     </div>
                     <div class="cw-content">${escapeHtml(c.content)}</div>
-                    ${c.image_path ? `<img src="${c.image_path}" alt="留言图片">` : ''}
+                    ${c.image_path ? `<img src="${sanitizeUrl(c.image_path)}" alt="留言图片">` : ''}
                     ${c.current_user ? `<button class="cw-delete" data-id="${c.id}">删除</button>` : ''}
                 </div>
             `).join('');
@@ -263,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span class="comment-time">${c.created_at}</span>
                     </div>
                     <div class="comment-content">${escapeHtml(c.content)}</div>
-                    ${c.image_path ? `<img src="${c.image_path}" style="max-width:100%;max-height:150px;border-radius:8px;margin-top:8px;">` : ''}
+                    ${c.image_path ? `<img src="${sanitizeUrl(c.image_path)}" style="max-width:100%;max-height:150px;border-radius:8px;margin-top:8px;">` : ''}
                     ${c.current_user ? `<button class="comment-delete" data-id="${c.id}">删除</button>` : ''}
                 </div>
             `).join('');
@@ -309,6 +311,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    function sanitizeUrl(url) {
+        if (!url) return '';
+        // 阻止 javascript: 等危险协议
+        if (/^\s*javascript:/i.test(url)) return '';
+        // 编码 HTML 特殊字符防止属性逃逸
+        return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     // 弹窗中发布留言
